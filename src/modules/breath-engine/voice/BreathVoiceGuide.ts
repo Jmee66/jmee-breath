@@ -6,9 +6,11 @@
  * chaque phase respiratoire d'une voix douce et posée.
  *
  * Cross-platform :
- *  - getVoices() est asynchrone sur iOS/Chrome : on pré-charge les voix
- *    dans le constructeur via l'événement voiceschanged et on les met en
- *    cache pour que speak() les trouve immédiatement.
+ *  - getVoices() est asynchrone sur iOS/Chrome : le cache de voix est
+ *    initialisé au niveau MODULE (une seule fois, pas par instance) via
+ *    l'événement voiceschanged. Évite l'accumulation de listeners et la
+ *    fuite mémoire qui survenait quand un nouveau BreathVoiceGuide était
+ *    créé à chaque session.
  *  - Bug iOS : speechSynthesis peut rester coincé en état "paused" sans
  *    intervention de l'app → on appelle resume() avant chaque speak().
  *  - Pas de Google TTS sur iOS (indisponible) — on préfère la voix native.
@@ -25,7 +27,6 @@ export interface VoiceGuideSettings {
 }
 
 // ── Texte par phase ───────────────────────────────────────────────────────────
-// null = phase silencieuse
 const PHASE_TEXT: Record<InternalPhaseType, string | null> = {
   preparation:  'Préparez-vous',
   inhale:       'Inspirez',
@@ -35,27 +36,43 @@ const PHASE_TEXT: Record<InternalPhaseType, string | null> = {
   recovery:     'Récupérez',
 }
 
+// ── Cache des voix — niveau module ────────────────────────────────────────────
+// Partagé entre toutes les instances : le listener voiceschanged n'est
+// enregistré qu'une seule fois, quelle que soit le nombre de sessions.
+let _cachedFrVoice: SpeechSynthesisVoice | null = null
+let _voiceCacheInitialized = false
+
+function _initVoiceCache(): void {
+  if (_voiceCacheInitialized) return
+  _voiceCacheInitialized = true
+
+  const tryCache = () => {
+    const voices = window.speechSynthesis.getVoices()
+    if (!voices.length) return
+    _cachedFrVoice =
+      voices.find((v) => v.lang.startsWith('fr') && !v.name.toLowerCase().includes('google')) ??
+      voices.find((v) => v.lang.startsWith('fr')) ??
+      null
+  }
+
+  // Tentative synchrone (disponible sur Firefox et Chrome desktop)
+  tryCache()
+  // voiceschanged se déclenche quand le navigateur a chargé la liste (iOS/Chrome mobile)
+  window.speechSynthesis.addEventListener('voiceschanged', tryCache)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class BreathVoiceGuide {
   private readonly settings: VoiceGuideSettings
-  private supported: boolean
-  /** Cache des voix françaises — alimenté dès que le navigateur les charge. */
-  private cachedFrVoice: SpeechSynthesisVoice | null = null
+  private readonly supported: boolean
 
   constructor(settings: VoiceGuideSettings) {
-    this.settings = settings
+    this.settings  = settings
     this.supported = typeof window !== 'undefined' && 'speechSynthesis' in window
 
-    if (this.supported) {
-      // Premier appel synchrone : peut retourner [] sur iOS/Chrome au cold start
-      this.cacheVoice(window.speechSynthesis.getVoices())
-
-      // voiceschanged se déclenche quand le navigateur a chargé la liste complète
-      window.speechSynthesis.addEventListener('voiceschanged', () => {
-        this.cacheVoice(window.speechSynthesis.getVoices())
-      })
-    }
+    // Initialise le cache des voix (no-op si déjà fait lors d'une session précédente)
+    if (this.supported) _initVoiceCache()
   }
 
   speak(phase: InternalPhaseType): void {
@@ -73,14 +90,14 @@ export class BreathVoiceGuide {
       // Annule toute parole en cours pour ne pas empiler les annonces
       synth.cancel()
 
-      const utterance      = new SpeechSynthesisUtterance(text)
-      utterance.lang       = 'fr-FR'
-      utterance.volume     = this.settings.volume
-      utterance.rate       = this.settings.rate
-      utterance.pitch      = 0.55  // grave et posé — voix méditative profonde
+      const utterance  = new SpeechSynthesisUtterance(text)
+      utterance.lang   = 'fr-FR'
+      utterance.volume = this.settings.volume
+      utterance.rate   = this.settings.rate
+      utterance.pitch  = 0.55  // grave et posé — voix méditative profonde
 
-      // Voix française en cache (chargée de façon asynchrone au démarrage)
-      if (this.cachedFrVoice) utterance.voice = this.cachedFrVoice
+      // Voix française en cache partagé (chargée lors de l'init module)
+      if (_cachedFrVoice) utterance.voice = _cachedFrVoice
 
       synth.speak(utterance)
     } catch {
@@ -91,16 +108,5 @@ export class BreathVoiceGuide {
   cancel(): void {
     if (!this.supported) return
     try { window.speechSynthesis.cancel() } catch { /* silencieux */ }
-  }
-
-  // ── Privé ────────────────────────────────────────────────────────────────
-
-  private cacheVoice(voices: SpeechSynthesisVoice[]): void {
-    if (!voices.length) return
-    // Préfère une voix locale française (non-Google) — meilleure sur iOS
-    this.cachedFrVoice =
-      voices.find((v) => v.lang.startsWith('fr') && !v.name.toLowerCase().includes('google')) ??
-      voices.find((v) => v.lang.startsWith('fr')) ??
-      null
   }
 }

@@ -35,8 +35,8 @@ const DRONE_FREQUENCY: Record<InternalPhaseType, number | null> = {
   recovery:     174,  // F3   — résolution
 }
 
-// Désaccord en cents pour les 3 oscillateurs : battement lent naturel
-const DETUNE_CENTS = [0, +5, -5] as const
+// Désaccord très léger : ±2 cents → battement ~0.25 Hz (shimmer imperceptible, pas de flutter)
+const DETUNE_CENTS = [0, +2, -2] as const
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -84,9 +84,9 @@ export class BreathDroneEngine {
     // Ignore les phases trop courtes ou déjà passées
     if (t < this.audioCtx.currentTime || duration < 0.8) return
 
-    // Durées d'attaque/relâchement : 25 % de la phase, max 1.5 s
-    const attackTime  = Math.min(1.5, duration * 0.25)
-    const releaseTime = Math.min(1.5, duration * 0.25)
+    // Durées d'attaque/relâchement : 30 % de la phase, max 2 s — fondu très progressif
+    const attackTime  = Math.min(2.0, duration * 0.30)
+    const releaseTime = Math.min(2.0, duration * 0.30)
 
     // Points clés sur l'axe du temps
     const attackEnd    = t + attackTime
@@ -94,9 +94,9 @@ export class BreathDroneEngine {
     const stopAt       = t + duration + 0.1
 
     // Amplitude de référence (normalisée — masterGain gère le volume réel)
-    const peakGain       = 0.18
-    // Ratio du glissement de pitch : part légèrement en dessous de la note cible
-    const pitchDriftRatio = 0.982   // ≈ −31 cents
+    const peakGain        = 0.13
+    // Glissement de pitch très subtil : −0.3 % seulement (≈ −5 cents), quasiment immobile
+    const pitchDriftRatio = 0.997
 
     DETUNE_CENTS.forEach((cents) => {
       // Fréquence désaccordée : 2^(cents/1200) × baseFreq
@@ -118,11 +118,11 @@ export class BreathDroneEngine {
       osc.frequency.setValueAtTime(freq, releaseStart)
       osc.frequency.linearRampToValueAtTime(freq * pitchDriftRatio, t + duration)
 
-      // ── Filtre passe-bas — texture pad douce ──────────────────────────────
+      // ── Filtre passe-bas — texture pad très sombre et veloutée ───────────
       // BiquadFilterNode type 'lowpass' : Level 1, support universel
       filter.type            = 'lowpass'
-      filter.frequency.value = 750   // coupe les harmoniques dures
-      filter.Q.value         = 0.8
+      filter.frequency.value = 450   // coupe tôt → son lointain, doux, non-intrusif
+      filter.Q.value         = 0.6
 
       // ── Enveloppe amplitude ───────────────────────────────────────────────
       gain.gain.setValueAtTime(0, t)

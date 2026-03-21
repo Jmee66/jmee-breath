@@ -12,7 +12,8 @@ class TypedEventBus {
   private readonly target = new EventTarget()
 
   emit<T extends AppEvent['type']>(type: T, payload: EventPayload<T>): void {
-    this.target.dispatchEvent(new CustomEvent(type, { detail: payload }))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    this.target.dispatchEvent(new CustomEvent(type, { detail: payload as any }))
   }
 
   on<T extends AppEvent['type']>(

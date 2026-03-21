@@ -1,5 +1,5 @@
 import { PageContainer } from '@modules/theme'
-import { useSoundStore, useVoiceGuideStore } from '@modules/breath-engine'
+import { useSoundStore, useVoiceGuideStore, useDroneStore } from '@modules/breath-engine'
 import type { SoundSet } from '@modules/breath-engine'
 import { Volume2, VolumeX } from 'lucide-react'
 import { version } from '../../package.json'
@@ -125,6 +125,12 @@ export default function SettingsPageRoute() {
   const setSoundVolume  = useSoundStore((s) => s.setSoundVolume)
   const setSoundSet     = useSoundStore((s) => s.setSoundSet)
 
+  // Fond sonore continu
+  const droneEnabled    = useDroneStore((s) => s.droneEnabled)
+  const droneVolume     = useDroneStore((s) => s.droneVolume)
+  const setDroneEnabled = useDroneStore((s) => s.setDroneEnabled)
+  const setDroneVolume  = useDroneStore((s) => s.setDroneVolume)
+
   // Guidage vocal
   const voiceEnabled    = useVoiceGuideStore((s) => s.voiceEnabled)
   const voiceVolume     = useVoiceGuideStore((s) => s.voiceVolume)
@@ -186,6 +192,31 @@ export default function SettingsPageRoute() {
               ))}
             </div>
           </div>
+
+        </div>
+      </section>
+
+      {/* ── Fond sonore continu ── */}
+      <section>
+        <SectionTitle>Fond sonore</SectionTitle>
+        <div className="card divide-y divide-border overflow-hidden p-0">
+
+          <SettingRow
+            label="Nappe continue"
+            hint="Pad doux sur toute la durée de chaque phase"
+          >
+            <Toggle value={droneEnabled} onChange={setDroneEnabled} />
+          </SettingRow>
+
+          <SliderRow
+            label="Volume"
+            value={droneVolume}
+            onChange={setDroneVolume}
+            min={0} max={1} step={0.05}
+            disabled={!droneEnabled}
+            iconLeft={<VolumeX size={13} className="text-text-muted" />}
+            iconRight={<Volume2 size={13} className="text-text-muted" />}
+          />
 
         </div>
       </section>

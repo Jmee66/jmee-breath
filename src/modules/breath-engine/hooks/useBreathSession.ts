@@ -2,6 +2,7 @@ import { useRef, useCallback, useEffect } from 'react'
 import { useBreathStore } from '../store/breathStore'
 import { BreathClock } from '../clock/BreathClock'
 import { useSoundStore } from '../sounds/soundStore'
+import { useDroneStore } from '../sounds/droneStore'
 import { BreathVoiceGuide } from '../voice/BreathVoiceGuide'
 import { useVoiceGuideStore } from '../voice/voiceGuideStore'
 import { eventBus } from '@core/events'
@@ -20,11 +21,11 @@ export function useBreathSession() {
 
   const store = useBreathStore()
 
-  // Souscription réactive au volume — mise à jour du masterGain en temps réel
+  // Souscriptions réactives aux volumes — mise à jour des masterGain en temps réel
   const soundVolume = useSoundStore((s) => s.soundVolume)
-  useEffect(() => {
-    clockRef.current?.setVolume(soundVolume)
-  }, [soundVolume])
+  const droneVolume = useDroneStore((s) => s.droneVolume)
+  useEffect(() => { clockRef.current?.setVolume(soundVolume)      }, [soundVolume])
+  useEffect(() => { clockRef.current?.setDroneVolume(droneVolume) }, [droneVolume])
 
   // Reprise automatique si l'AudioContext a été suspendu par le système
   // (verrouillage écran, appel entrant, changement d'onglet sur iOS/Android)
@@ -113,6 +114,7 @@ export function useBreathSession() {
 
     // Lit les préférences au moment du démarrage (snapshot, pas de subscription)
     const { soundEnabled, soundVolume, soundSet } = useSoundStore.getState()
+    const { droneEnabled, droneVolume }            = useDroneStore.getState()
     const { voiceEnabled, voiceVolume, voiceRate } = useVoiceGuideStore.getState()
 
     voiceGuideRef.current = new BreathVoiceGuide({
@@ -129,6 +131,7 @@ export function useBreathSession() {
         onSessionComplete: handleSessionComplete,
       },
       { enabled: soundEnabled, volume: soundVolume, soundSet },
+      { enabled: droneEnabled, volume: droneVolume },
     )
     clockRef.current = clock
 

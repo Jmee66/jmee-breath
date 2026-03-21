@@ -1,7 +1,9 @@
 import type { Exercise, Phase, PhaseType } from '@core/types'
 import type { BreathClockCallbacks, InternalPhaseType, ScheduledPhase } from './types'
 import { BreathSoundEngine } from '../sounds/BreathSoundEngine'
+import { BreathDroneEngine } from '../sounds/BreathDroneEngine'
 import type { SoundSettings } from '../sounds/soundTypes'
+import type { DroneSettings } from '../sounds/droneTypes'
 
 const PREPARATION_DURATION = 3 // secondes de préparation avant la 1re rep
 
@@ -20,14 +22,11 @@ const AudioCtx: typeof AudioContext =
  * Classe pure TypeScript — aucun import React.
  * Utilise AudioContext pour un timing sample-accurate.
  *
- * Le BreathSoundEngine partage le même AudioContext pour garantir
- * que les sons soient alignés au sample près avec les phases visuelles.
- *
  * Cross-platform :
  *  - webkitAudioContext fallback (anciens Safari / Chrome iOS)
- *  - handlePageVisible() : reprend l'AudioContext si le système l'a suspendu
- *    sans que l'utilisateur ait explicitement mis en pause (verrouillage écran,
- *    changement d'onglet, appel entrant…)
+ *  - handlePageVisible() : reprend l'AudioContext si suspendu par l'OS
+ *    (verrouillage écran, appel entrant, changement d'onglet)
+ *  - isUserPaused distingue pause volontaire vs suspension système
  */
 export class BreathClock {
   private audioCtx: AudioContext
@@ -39,12 +38,20 @@ export class BreathClock {
   private isUserPaused = false
   private readonly callbacks: BreathClockCallbacks
   private readonly soundEngine: BreathSoundEngine | null
+  private readonly droneEngine: BreathDroneEngine | null
 
-  constructor(callbacks: BreathClockCallbacks, soundSettings?: SoundSettings) {
-    this.audioCtx = new AudioCtx()
-    this.callbacks = callbacks
+  constructor(
+    callbacks: BreathClockCallbacks,
+    soundSettings?: SoundSettings,
+    droneSettings?: DroneSettings,
+  ) {
+    this.audioCtx    = new AudioCtx()
+    this.callbacks   = callbacks
     this.soundEngine = soundSettings?.enabled
       ? new BreathSoundEngine(this.audioCtx, soundSettings)
+      : null
+    this.droneEngine = droneSettings?.enabled
+      ? new BreathDroneEngine(this.audioCtx, droneSettings)
       : null
   }
 
@@ -54,11 +61,11 @@ export class BreathClock {
     if (this.audioCtx.state === 'suspended') {
       await this.audioCtx.resume()
     }
-    this.scheduledPhases = this.buildSchedule(exercise, this.audioCtx.currentTime)
+    this.scheduledPhases  = this.buildSchedule(exercise, this.audioCtx.currentTime)
     this.currentPhaseIndex = -1
 
-    // Planifie les sons sur l'ensemble de la session
     this.soundEngine?.schedulePhases(this.scheduledPhases)
+    this.droneEngine?.schedulePhases(this.scheduledPhases)
 
     this.tick()
   }
@@ -66,7 +73,7 @@ export class BreathClock {
   pause(): void {
     if (this.audioCtx.state !== 'running') return
     this.isUserPaused = true
-    this.pausedAt = this.audioCtx.currentTime
+    this.pausedAt     = this.audioCtx.currentTime
     void this.audioCtx.suspend()
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId)
@@ -78,21 +85,21 @@ export class BreathClock {
     if (this.pausedAt === null) return
     this.isUserPaused = false
     const suspendDuration = this.audioCtx.currentTime - this.pausedAt
-    // Décale toutes les phases futures pour compenser la pause
-    this.scheduledPhases = this.scheduledPhases.map((p) =>
+    this.scheduledPhases  = this.scheduledPhases.map((p) =>
       p.startTime >= this.pausedAt!
         ? { ...p, startTime: p.startTime + suspendDuration, endTime: p.endTime + suspendDuration }
         : p
     )
     this.pausedAt = null
 
-    // Sons : annule les sons en attente (anciens temps) et replanifie aux nouveaux
+    const futurPhases = this.scheduledPhases.filter((p) => p.startTime > this.audioCtx.currentTime)
     if (this.soundEngine) {
       this.soundEngine.cancelAll()
-      const now = this.audioCtx.currentTime
-      this.soundEngine.schedulePhases(
-        this.scheduledPhases.filter((p) => p.startTime > now),
-      )
+      this.soundEngine.schedulePhases(futurPhases)
+    }
+    if (this.droneEngine) {
+      this.droneEngine.cancelAll()
+      this.droneEngine.schedulePhases(futurPhases)
     }
 
     void this.audioCtx.resume()
@@ -105,6 +112,7 @@ export class BreathClock {
       this.rafId = null
     }
     this.soundEngine?.cancelAll()
+    this.droneEngine?.cancelAll()
     void this.audioCtx.close()
   }
 
@@ -112,24 +120,25 @@ export class BreathClock {
     return this.audioCtx.currentTime
   }
 
-  /** Délègue au masterGain du sound engine — mise à jour en temps réel. */
+  /** Volume du moteur de bips de phase (masterGain). */
   setVolume(volume: number): void {
     this.soundEngine?.setVolume(volume)
   }
 
+  /** Volume du fond sonore continu (masterGain du drone). */
+  setDroneVolume(volume: number): void {
+    this.droneEngine?.setVolume(volume)
+  }
+
   /**
    * À appeler quand la page redevient visible (visibilitychange).
-   * Si l'AudioContext a été suspendu par le système (verrouillage écran,
-   * appel entrant, changement d'onglet) sans que l'utilisateur ait mis en
-   * pause, on le reprend silencieusement.
+   * Reprend l'AudioContext si le système l'a suspendu sans que l'utilisateur
+   * ait mis en pause (verrouillage écran, appel entrant, changement d'onglet).
    */
   handlePageVisible(): void {
-    // Ne rien faire si c'est une pause volontaire de l'utilisateur
     if (this.isUserPaused) return
     if (this.audioCtx.state !== 'suspended') return
-
     void this.audioCtx.resume().then(() => {
-      // Relance le rAF si nécessaire (il s'est arrêté quand le contexte s'est suspendu)
       if (this.rafId === null) this.tick()
     })
   }
@@ -139,7 +148,6 @@ export class BreathClock {
   private tick = (): void => {
     const now = this.audioCtx.currentTime
 
-    // Session terminée ?
     const last = this.scheduledPhases[this.scheduledPhases.length - 1]
     if (last && now >= last.endTime) {
       this.callbacks.onSessionComplete()
@@ -148,14 +156,12 @@ export class BreathClock {
 
     const idx = this.findPhaseIndex(now)
 
-    // Changement de phase
     if (idx !== this.currentPhaseIndex && idx >= 0) {
       const prev = this.currentPhaseIndex >= 0 ? this.scheduledPhases[this.currentPhaseIndex] : null
       this.currentPhaseIndex = idx
       const phase = this.scheduledPhases[idx]
       this.callbacks.onPhaseChange(phase)
 
-      // Fin de répétition : on vient de passer dans la phase suivante après la dernière phase d'une rep
       if (
         prev !== null &&
         prev.repIndex >= 0 &&
@@ -165,10 +171,9 @@ export class BreathClock {
       }
     }
 
-    // Tick de progression
     if (idx >= 0) {
-      const phase = this.scheduledPhases[idx]
-      const elapsed = now - phase.startTime
+      const phase    = this.scheduledPhases[idx]
+      const elapsed  = now - phase.startTime
       const progress = Math.min(elapsed / phase.durationSeconds, 1)
       const remaining = Math.max(phase.endTime - now, 0)
       this.callbacks.onTick(progress, Math.ceil(remaining))
@@ -187,21 +192,18 @@ export class BreathClock {
     const phases: ScheduledPhase[] = []
     let cursor = baseTime
 
-    // Phase de préparation
     phases.push({
       internalType: 'preparation',
-      publicType: 'inhale', // valeur nominale pour l'event bus, non utilisée
+      publicType:   'inhale',
       durationSeconds: PREPARATION_DURATION,
       startTime: cursor,
-      endTime: cursor + PREPARATION_DURATION,
-      repIndex: -1,
+      endTime:   cursor + PREPARATION_DURATION,
+      repIndex:  -1,
       phaseIndex: -1,
     })
     cursor += PREPARATION_DURATION
 
     for (let repIndex = 0; repIndex < exercise.repetitions; repIndex++) {
-      // Seed: on pose exhale comme phase précédente fictive
-      // → le premier hold d'une rep (après inhale) sera 'hold-full' ✓
       let prevPublicType: PhaseType = 'exhale'
 
       exercise.phases.forEach((phase, phaseIndex) => {
@@ -210,9 +212,9 @@ export class BreathClock {
           internalType,
           publicType: phase.type,
           durationSeconds: phase.durationSeconds,
-          label: phase.label,
-          startTime: cursor,
-          endTime: cursor + phase.durationSeconds,
+          label:      phase.label,
+          startTime:  cursor,
+          endTime:    cursor + phase.durationSeconds,
           repIndex,
           phaseIndex,
         })
@@ -220,16 +222,15 @@ export class BreathClock {
         prevPublicType = phase.type
       })
 
-      // Repos entre les répétitions (pas après la dernière)
       if (repIndex < exercise.repetitions - 1 && exercise.restBetweenRepsSeconds > 0) {
         phases.push({
           internalType: 'recovery',
-          publicType: 'recovery',
+          publicType:   'recovery',
           durationSeconds: exercise.restBetweenRepsSeconds,
-          startTime: cursor,
-          endTime: cursor + exercise.restBetweenRepsSeconds,
+          startTime:  cursor,
+          endTime:    cursor + exercise.restBetweenRepsSeconds,
           repIndex,
-          phaseIndex: exercise.phases.length, // sentinel : après la dernière phase
+          phaseIndex: exercise.phases.length,
         })
         cursor += exercise.restBetweenRepsSeconds
       }

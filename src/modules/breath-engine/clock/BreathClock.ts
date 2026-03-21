@@ -10,6 +10,11 @@ function resolveInternalType(phase: Phase, prevPublicType: PhaseType): InternalP
   return prevPublicType === 'inhale' ? 'hold-full' : 'hold-empty'
 }
 
+// Fallback webkit pour anciens Safari / Chrome iOS
+const AudioCtx: typeof AudioContext =
+  window.AudioContext ??
+  (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+
 /**
  * Moteur de timing pour une session de respiration.
  * Classe pure TypeScript — aucun import React.
@@ -17,6 +22,12 @@ function resolveInternalType(phase: Phase, prevPublicType: PhaseType): InternalP
  *
  * Le BreathSoundEngine partage le même AudioContext pour garantir
  * que les sons soient alignés au sample près avec les phases visuelles.
+ *
+ * Cross-platform :
+ *  - webkitAudioContext fallback (anciens Safari / Chrome iOS)
+ *  - handlePageVisible() : reprend l'AudioContext si le système l'a suspendu
+ *    sans que l'utilisateur ait explicitement mis en pause (verrouillage écran,
+ *    changement d'onglet, appel entrant…)
  */
 export class BreathClock {
   private audioCtx: AudioContext
@@ -24,11 +35,13 @@ export class BreathClock {
   private currentPhaseIndex = -1
   private rafId: number | null = null
   private pausedAt: number | null = null
+  /** true uniquement quand c'est l'utilisateur qui a mis en pause (bouton pause) */
+  private isUserPaused = false
   private readonly callbacks: BreathClockCallbacks
   private readonly soundEngine: BreathSoundEngine | null
 
   constructor(callbacks: BreathClockCallbacks, soundSettings?: SoundSettings) {
-    this.audioCtx = new AudioContext()
+    this.audioCtx = new AudioCtx()
     this.callbacks = callbacks
     this.soundEngine = soundSettings?.enabled
       ? new BreathSoundEngine(this.audioCtx, soundSettings)
@@ -52,6 +65,7 @@ export class BreathClock {
 
   pause(): void {
     if (this.audioCtx.state !== 'running') return
+    this.isUserPaused = true
     this.pausedAt = this.audioCtx.currentTime
     void this.audioCtx.suspend()
     if (this.rafId !== null) {
@@ -62,6 +76,7 @@ export class BreathClock {
 
   resume(): void {
     if (this.pausedAt === null) return
+    this.isUserPaused = false
     const suspendDuration = this.audioCtx.currentTime - this.pausedAt
     // Décale toutes les phases futures pour compenser la pause
     this.scheduledPhases = this.scheduledPhases.map((p) =>
@@ -100,6 +115,23 @@ export class BreathClock {
   /** Délègue au masterGain du sound engine — mise à jour en temps réel. */
   setVolume(volume: number): void {
     this.soundEngine?.setVolume(volume)
+  }
+
+  /**
+   * À appeler quand la page redevient visible (visibilitychange).
+   * Si l'AudioContext a été suspendu par le système (verrouillage écran,
+   * appel entrant, changement d'onglet) sans que l'utilisateur ait mis en
+   * pause, on le reprend silencieusement.
+   */
+  handlePageVisible(): void {
+    // Ne rien faire si c'est une pause volontaire de l'utilisateur
+    if (this.isUserPaused) return
+    if (this.audioCtx.state !== 'suspended') return
+
+    void this.audioCtx.resume().then(() => {
+      // Relance le rAF si nécessaire (il s'est arrêté quand le contexte s'est suspendu)
+      if (this.rafId === null) this.tick()
+    })
   }
 
   // ── Boucle principale (rAF) ──────────────────────────────────────────────

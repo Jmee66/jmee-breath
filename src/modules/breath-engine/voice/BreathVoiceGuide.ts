@@ -4,6 +4,14 @@
  * Classe pure TypeScript — aucun import React.
  * Utilise la Web Speech API (SpeechSynthesis) pour annoncer
  * chaque phase respiratoire d'une voix douce et posée.
+ *
+ * Cross-platform :
+ *  - getVoices() est asynchrone sur iOS/Chrome : on pré-charge les voix
+ *    dans le constructeur via l'événement voiceschanged et on les met en
+ *    cache pour que speak() les trouve immédiatement.
+ *  - Bug iOS : speechSynthesis peut rester coincé en état "paused" sans
+ *    intervention de l'app → on appelle resume() avant chaque speak().
+ *  - Pas de Google TTS sur iOS (indisponible) — on préfère la voix native.
  */
 
 import type { InternalPhaseType } from '../clock/types'
@@ -32,10 +40,22 @@ const PHASE_TEXT: Record<InternalPhaseType, string | null> = {
 export class BreathVoiceGuide {
   private readonly settings: VoiceGuideSettings
   private supported: boolean
+  /** Cache des voix françaises — alimenté dès que le navigateur les charge. */
+  private cachedFrVoice: SpeechSynthesisVoice | null = null
 
   constructor(settings: VoiceGuideSettings) {
     this.settings = settings
     this.supported = typeof window !== 'undefined' && 'speechSynthesis' in window
+
+    if (this.supported) {
+      // Premier appel synchrone : peut retourner [] sur iOS/Chrome au cold start
+      this.cacheVoice(window.speechSynthesis.getVoices())
+
+      // voiceschanged se déclenche quand le navigateur a chargé la liste complète
+      window.speechSynthesis.addEventListener('voiceschanged', () => {
+        this.cacheVoice(window.speechSynthesis.getVoices())
+      })
+    }
   }
 
   speak(phase: InternalPhaseType): void {
@@ -44,23 +64,25 @@ export class BreathVoiceGuide {
     if (!text) return
 
     try {
+      const synth = window.speechSynthesis
+
+      // Bug iOS : la synthèse peut rester coincée en état "paused" sans raison.
+      // Un resume() préventif débloque la file sans effet de bord si elle tourne.
+      if (synth.paused) synth.resume()
+
       // Annule toute parole en cours pour ne pas empiler les annonces
-      window.speechSynthesis.cancel()
+      synth.cancel()
 
-      const utterance = new SpeechSynthesisUtterance(text)
-      utterance.lang    = 'fr-FR'
-      utterance.volume  = this.settings.volume
-      utterance.rate    = this.settings.rate
-      utterance.pitch   = 0.55  // grave et posé — voix méditative profonde
+      const utterance      = new SpeechSynthesisUtterance(text)
+      utterance.lang       = 'fr-FR'
+      utterance.volume     = this.settings.volume
+      utterance.rate       = this.settings.rate
+      utterance.pitch      = 0.55  // grave et posé — voix méditative profonde
 
-      // Cherche une voix française si disponible
-      const voices = window.speechSynthesis.getVoices()
-      const frVoice = voices.find(
-        (v) => v.lang.startsWith('fr') && !v.name.toLowerCase().includes('google')
-      ) ?? voices.find((v) => v.lang.startsWith('fr'))
-      if (frVoice) utterance.voice = frVoice
+      // Voix française en cache (chargée de façon asynchrone au démarrage)
+      if (this.cachedFrVoice) utterance.voice = this.cachedFrVoice
 
-      window.speechSynthesis.speak(utterance)
+      synth.speak(utterance)
     } catch {
       // speechSynthesis peut être bloqué sur certains contextes (iOS Safari strict)
     }
@@ -69,5 +91,16 @@ export class BreathVoiceGuide {
   cancel(): void {
     if (!this.supported) return
     try { window.speechSynthesis.cancel() } catch { /* silencieux */ }
+  }
+
+  // ── Privé ────────────────────────────────────────────────────────────────
+
+  private cacheVoice(voices: SpeechSynthesisVoice[]): void {
+    if (!voices.length) return
+    // Préfère une voix locale française (non-Google) — meilleure sur iOS
+    this.cachedFrVoice =
+      voices.find((v) => v.lang.startsWith('fr') && !v.name.toLowerCase().includes('google')) ??
+      voices.find((v) => v.lang.startsWith('fr')) ??
+      null
   }
 }

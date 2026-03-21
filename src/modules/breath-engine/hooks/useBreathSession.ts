@@ -26,6 +26,18 @@ export function useBreathSession() {
     clockRef.current?.setVolume(soundVolume)
   }, [soundVolume])
 
+  // Reprise automatique si l'AudioContext a été suspendu par le système
+  // (verrouillage écran, appel entrant, changement d'onglet sur iOS/Android)
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        clockRef.current?.handlePageVisible()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [])
+
   // ── Callbacks du clock ──────────────────────────────────────────────────
 
   const handlePhaseChange = useCallback((phase: ScheduledPhase) => {

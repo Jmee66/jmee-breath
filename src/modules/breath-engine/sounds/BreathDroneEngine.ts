@@ -52,7 +52,7 @@ export class BreathDroneEngine {
     private readonly settings: DroneSettings,
   ) {
     this.masterGain = audioCtx.createGain()
-    this.masterGain.gain.value = settings.volume
+    this.masterGain.gain.value = settings.enabled ? settings.volume : 0
     this.masterGain.connect(audioCtx.destination)
   }
 
@@ -62,7 +62,6 @@ export class BreathDroneEngine {
   }
 
   schedulePhases(phases: ScheduledPhase[]): void {
-    if (!this.settings.enabled) return
     for (const phase of phases) {
       if (phase.internalType === 'inhale') {
         this.scheduleSweep(phase, SWEEP_LOW, SWEEP_HIGH)

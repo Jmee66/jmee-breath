@@ -5,6 +5,7 @@ import { useBreathSession } from '../hooks/useBreathSession'
 import { useBreathStore } from '../store/breathStore'
 import { useSoundStore } from '../sounds/soundStore'
 import { useDroneStore } from '../sounds/droneStore'
+import { useRiverStore } from '../sounds/riverStore'
 import { useVoiceGuideStore } from '../voice/voiceGuideStore'
 import { BreathVisual } from '../graphics/BreathVisual'
 import { BreathText } from '../text/BreathText'
@@ -33,6 +34,11 @@ export function BreathScreen({ exercise, onComplete, onExit }: BreathScreenProps
   const droneVolume     = useDroneStore((s) => s.droneVolume)
   const setDroneEnabled = useDroneStore((s) => s.setDroneEnabled)
   const setDroneVolume  = useDroneStore((s) => s.setDroneVolume)
+
+  const riverEnabled    = useRiverStore((s) => s.riverEnabled)
+  const riverVolume     = useRiverStore((s) => s.riverVolume)
+  const setRiverEnabled = useRiverStore((s) => s.setRiverEnabled)
+  const setRiverVolume  = useRiverStore((s) => s.setRiverVolume)
 
   const voiceEnabled    = useVoiceGuideStore((s) => s.voiceEnabled)
   const voiceVolume     = useVoiceGuideStore((s) => s.voiceVolume)
@@ -65,7 +71,7 @@ export function BreathScreen({ exercise, onComplete, onExit }: BreathScreenProps
     onExit()
   }
 
-  const anyEnabled = soundEnabled || droneEnabled || voiceEnabled
+  const anyEnabled = soundEnabled || droneEnabled || riverEnabled || voiceEnabled
 
   return (
     <div
@@ -151,6 +157,13 @@ export function BreathScreen({ exercise, onComplete, onExit }: BreathScreenProps
               volume={droneVolume}
               onToggle={() => setDroneEnabled(!droneEnabled)}
               onVolume={setDroneVolume}
+            />
+            <SoundRow
+              label="Rivière"
+              enabled={riverEnabled}
+              volume={riverVolume}
+              onToggle={() => setRiverEnabled(!riverEnabled)}
+              onVolume={setRiverVolume}
             />
             <SoundRow
               label="Voix"

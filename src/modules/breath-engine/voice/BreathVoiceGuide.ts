@@ -64,7 +64,7 @@ function _initVoiceCache(): void {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class BreathVoiceGuide {
-  private readonly settings: VoiceGuideSettings
+  private settings: VoiceGuideSettings
   private readonly supported: boolean
 
   constructor(settings: VoiceGuideSettings) {
@@ -103,6 +103,11 @@ export class BreathVoiceGuide {
     } catch {
       // speechSynthesis peut être bloqué sur certains contextes (iOS Safari strict)
     }
+  }
+
+  setEnabled(enabled: boolean): void {
+    this.settings = { ...this.settings, enabled }
+    if (!enabled) this.cancel()
   }
 
   cancel(): void {

@@ -71,7 +71,7 @@ export class BreathSoundEngine {
   ) {
     // Nœud maître — contrôle le volume global en temps réel
     this.masterGain = audioCtx.createGain()
-    this.masterGain.gain.value = settings.volume
+    this.masterGain.gain.value = settings.enabled ? settings.volume : 0
     this.masterGain.connect(audioCtx.destination)
   }
 
@@ -81,7 +81,6 @@ export class BreathSoundEngine {
   }
 
   schedulePhases(phases: ScheduledPhase[]): void {
-    if (!this.settings.enabled) return
     for (const phase of phases) {
       if (this.settings.soundSet === 'bowl') {
         this.scheduleBowlSound(phase)

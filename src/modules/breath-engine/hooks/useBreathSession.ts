@@ -20,6 +20,12 @@ export function useBreathSession() {
 
   const store = useBreathStore()
 
+  // Souscription réactive au volume — mise à jour du masterGain en temps réel
+  const soundVolume = useSoundStore((s) => s.soundVolume)
+  useEffect(() => {
+    clockRef.current?.setVolume(soundVolume)
+  }, [soundVolume])
+
   // ── Callbacks du clock ──────────────────────────────────────────────────
 
   const handlePhaseChange = useCallback((phase: ScheduledPhase) => {

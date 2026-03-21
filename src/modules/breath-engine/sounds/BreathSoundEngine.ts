@@ -7,6 +7,10 @@
  * Deux familles de sons :
  *  - Tonales (sine / crystal / minimal) : bip court à chaque changement de phase
  *  - Bowl : synthèse de bol tibétain par série harmonique inharmonique + vibrato
+ *
+ * Architecture gain :
+ *  oscillateur → gainNode (enveloppe ADSR normalisée) → masterGain (volume) → destination
+ *  setVolume() met à jour masterGain en temps réel, sans relancer la session.
  */
 
 import type { ScheduledPhase, InternalPhaseType } from '../clock/types'
@@ -59,11 +63,22 @@ const TONE_PROFILE: Record<Exclude<SoundSet, 'bowl'>, ToneProfile> = {
 
 export class BreathSoundEngine {
   private pendingOscillators: OscillatorNode[] = []
+  private readonly masterGain: GainNode
 
   constructor(
     private readonly audioCtx: AudioContext,
     private readonly settings: SoundSettings,
-  ) {}
+  ) {
+    // Nœud maître — contrôle le volume global en temps réel
+    this.masterGain = audioCtx.createGain()
+    this.masterGain.gain.value = settings.volume
+    this.masterGain.connect(audioCtx.destination)
+  }
+
+  /** Met à jour le volume maître instantanément (lissage 50 ms pour éviter les clics). */
+  setVolume(volume: number): void {
+    this.masterGain.gain.setTargetAtTime(volume, this.audioCtx.currentTime, 0.05)
+  }
 
   schedulePhases(phases: ScheduledPhase[]): void {
     if (!this.settings.enabled) return
@@ -94,8 +109,8 @@ export class BreathSoundEngine {
     if (t < this.audioCtx.currentTime) return
 
     const profile = TONE_PROFILE[this.settings.soundSet as Exclude<SoundSet, 'bowl'>]
-    const peakGain = this.settings.volume * profile.maxGain
 
+    // Les gains individuels sont normalisés (sans volume) — le masterGain gère le volume.
     const osc  = this.audioCtx.createOscillator()
     const gain = this.audioCtx.createGain()
 
@@ -103,11 +118,11 @@ export class BreathSoundEngine {
     osc.frequency.setValueAtTime(freq, t)
 
     gain.gain.setValueAtTime(0, t)
-    gain.gain.linearRampToValueAtTime(peakGain, t + profile.attackTime)
+    gain.gain.linearRampToValueAtTime(profile.maxGain, t + profile.attackTime)
     gain.gain.exponentialRampToValueAtTime(0.0001, t + profile.attackTime + profile.decayTime)
 
     osc.connect(gain)
-    gain.connect(this.audioCtx.destination)
+    gain.connect(this.masterGain)
     osc.start(t)
     osc.stop(t + profile.attackTime + profile.decayTime + 0.02)
 
@@ -123,14 +138,13 @@ export class BreathSoundEngine {
     const t = phase.startTime
     if (t < this.audioCtx.currentTime) return
 
-    const vol        = this.settings.volume
     const attackTime = 0.04    // frappe douce du maillet
     // Le bol résonne pour toute la durée de la phase — au minimum 1.5s
     const totalDecay = Math.max(phase.durationSeconds - attackTime, 1.5)
 
     BOWL_HARMONICS.forEach((h, i) => {
       const hFreq  = freq * h.ratio
-      const hGain  = vol * 0.20 * h.gainMult
+      const hGain  = 0.20 * h.gainMult   // normalisé — masterGain gère le volume
       const hDecay = totalDecay * h.decayMult
       const stopAt = t + attackTime + hDecay + 0.05
 
@@ -163,7 +177,7 @@ export class BreathSoundEngine {
       gain.gain.exponentialRampToValueAtTime(0.0001, t + attackTime + hDecay)
 
       osc.connect(gain)
-      gain.connect(this.audioCtx.destination)
+      gain.connect(this.masterGain)
       osc.start(t)
       osc.stop(stopAt)
 

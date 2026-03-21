@@ -97,6 +97,11 @@ export class BreathClock {
     return this.audioCtx.currentTime
   }
 
+  /** Délègue au masterGain du sound engine — mise à jour en temps réel. */
+  setVolume(volume: number): void {
+    this.soundEngine?.setVolume(volume)
+  }
+
   // ── Boucle principale (rAF) ──────────────────────────────────────────────
 
   private tick = (): void => {

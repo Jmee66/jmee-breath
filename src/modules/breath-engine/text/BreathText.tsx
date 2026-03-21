@@ -69,19 +69,18 @@ export function BreathText() {
         {isRunning && remainingSeconds > 0 ? remainingSeconds : '—'}
       </p>
 
-      {/* Rep N / total */}
-      {showRep && (
-        <p
-          style={{
-            fontSize: '0.8rem',
-            color: 'var(--color-text-muted)',
-            letterSpacing: '0.08em',
-            margin: 0,
-          }}
-        >
-          {repIndex + 1} / {totalReps}
-        </p>
-      )}
+      {/* Rep N / total — toujours dans le DOM pour éviter le saut de layout */}
+      <p
+        style={{
+          fontSize: '0.8rem',
+          color: 'var(--color-text-muted)',
+          letterSpacing: '0.08em',
+          margin: 0,
+          visibility: showRep ? 'visible' : 'hidden',
+        }}
+      >
+        {repIndex + 1} / {totalReps}
+      </p>
     </div>
   )
 }

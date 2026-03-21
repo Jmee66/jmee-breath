@@ -17,10 +17,10 @@
   --color-text-muted:     #4a5568;  /* Placeholders, désactivé */
   --color-text-inverse:   #080d1a;  /* Texte sur fond clair (boutons) */
 
-  /* ── Accent — bleu cyan apnée ─────────────────────────────────────────── */
-  --color-accent:     #38bdf8;  /* Accent principal */
-  --color-accent-soft:#0ea5e9;  /* Variante légèrement plus foncée */
-  --color-accent-dim: #0c4a6e;  /* Fond accent (badges, highlights) */
+  /* ── Accent — violet sombre désaturé ─────────────────────────────────── */
+  --color-accent:     #914ad3;  /* Accent principal — hsl(271,61%,56%) */
+  --color-accent-soft:#7c3ab6;  /* Variante plus foncée — hsl(272,52%,47%) */
+  --color-accent-dim: #391259;  /* Fond accent (badges, highlights) — hsl(273,67%,21%) */
 
   /* ── Bordures ─────────────────────────────────────────────────────────── */
   --color-border:        #1e2d45;
@@ -38,7 +38,7 @@
   --color-status-success: #34d399;
   --color-status-warning: #fbbf24;
   --color-status-error:   #f87171;
-  --color-status-info:    #38bdf8;
+  --color-status-info:    #914ad3;
 
   /* ── Breath circle ────────────────────────────────────────────────────── */
   --circle-min:    0.55;

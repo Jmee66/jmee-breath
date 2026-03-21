@@ -9,10 +9,10 @@ interface PhaseConfig {
 
 const PHASE_CONFIG: Record<InternalPhaseType, PhaseConfig> = {
   preparation:  { scaleFrom: 0.8, scaleTo: 0.8, hex: '#4a5568' },
-  inhale:       { scaleFrom: 0.7, scaleTo: 1.0, hex: '#1a85c2' },
+  inhale:       { scaleFrom: 0.8, scaleTo: 1.0, hex: '#1a85c2' },
   'hold-full':  { scaleFrom: 1.0, scaleTo: 1.0, hex: '#1a85c2' },
-  exhale:       { scaleFrom: 1.0, scaleTo: 0.7, hex: '#7561af' },
-  'hold-empty': { scaleFrom: 0.7, scaleTo: 0.7, hex: '#7561af' },
+  exhale:       { scaleFrom: 1.0, scaleTo: 0.8, hex: '#7561af' },
+  'hold-empty': { scaleFrom: 0.8, scaleTo: 0.8, hex: '#7561af' },
   recovery:     { scaleFrom: 0.8, scaleTo: 0.8, hex: '#34d399' },
 }
 
@@ -36,12 +36,13 @@ export function BreathCircle() {
   const isPulse = internalPhase === 'hold-full' || internalPhase === 'hold-empty'
   const colorTransition = `background ${phaseDuration}s linear, border-color ${phaseDuration}s linear`
 
+  // Pulse rAF : sin(progress × 2π) = 0 au début ET à la fin de chaque phase
+  // → aucun saut à la transition, pas de CSS animation à stopper
+  const pulse = isPulse ? Math.sin(phaseProgress * 2 * Math.PI) : 0
+  const brightness = 1 + 0.1 * pulse
+
   return (
-    // Wrapper : pulse CSS pendant les rétentions (n'interfère pas avec le scale rAF)
-    <div style={{
-      animation: isPulse ? 'breathPulse 2.5s ease-in-out infinite' : 'none',
-      flexShrink: 0,
-    }}>
+    <div style={{ flexShrink: 0 }}>
       <div
         style={{
           width: BASE_SIZE,
@@ -50,8 +51,9 @@ export function BreathCircle() {
           background: hex,
           border: `2px solid ${hex}`,
           transform: `scale(${scale.toFixed(4)})`,
+          filter: `brightness(${brightness.toFixed(4)})`,
           transition: colorTransition,
-          willChange: 'transform',
+          willChange: 'transform, filter',
         }}
       />
     </div>

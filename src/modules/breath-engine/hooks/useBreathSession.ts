@@ -19,8 +19,8 @@ export function useBreathSession() {
   // ── Callbacks du clock ──────────────────────────────────────────────────
 
   const handlePhaseChange = useCallback((phase: ScheduledPhase) => {
-    store.setPhase(phase.publicType, phase.durationSeconds)
-    store.setPhaseInternal(phase.internalType)
+    // setPhaseComplete : un seul set() Zustand → zéro render intermédiaire, transitions sans saut
+    store.setPhaseComplete(phase.publicType, phase.internalType, phase.durationSeconds)
     if (phase.repIndex >= 0) {
       store.setRepIndex(phase.repIndex)
     }

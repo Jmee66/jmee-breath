@@ -6,6 +6,25 @@ import type { Exercise } from '@core/types'
 
 export const PRESET_EXERCISES: Exercise[] = [
   {
+    id: 'preset-custom',
+    name: 'Custom',
+    description: 'Exercice libre — configure le rythme et les répétitions avant de démarrer.',
+    category: 'custom',
+    difficulty: 1,
+    tags: [],
+    phases: [
+      { type: 'inhale', durationSeconds: 4 },
+      { type: 'hold',   durationSeconds: 4 },
+      { type: 'exhale', durationSeconds: 4 },
+      { type: 'hold',   durationSeconds: 4 },
+    ],
+    repetitions: 5,
+    restBetweenRepsSeconds: 0,
+    isPreset: true,
+    createdAt: '2025-01-01T00:00:00.000Z',
+    updatedAt: '2025-01-01T00:00:00.000Z',
+  },
+  {
     id: 'preset-box-breathing',
     name: 'Box Breathing',
     description:

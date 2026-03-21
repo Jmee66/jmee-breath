@@ -65,7 +65,9 @@ export function SessionConfigSheet({ exercise, onClose, onStart }: SessionConfig
   )
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null)
 
-  const [asymmetric, setAsymmetric] = useState(() => !isSymmetric(exercise.phases))
+  const isCustom = exercise.category === 'custom'
+
+  const [asymmetric, setAsymmetric] = useState(() => isCustom || !isSymmetric(exercise.phases))
   const [symDuration, setSymDuration] = useState(() =>
     isSymmetric(exercise.phases) ? (exercise.phases[0]?.durationSeconds ?? 4) : 4
   )
@@ -183,47 +185,49 @@ export function SessionConfigSheet({ exercise, onClose, onStart }: SessionConfig
           {/* ── Rythme ── */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
 
-            {/* Rangée standard : 4s / 5.5s / 6s / Manuel */}
-            <div style={{ display: 'flex', gap: '6px' }}>
-              {QUICK_DURATIONS.map((d) => {
-                const active = !asymmetric && symDuration === d && selectedPresetId === null
-                return (
-                  <button
-                    key={d}
-                    onClick={() => handleQuickSelect(d)}
-                    style={{
-                      flex: 1,
-                      padding: '7px 0',
-                      borderRadius: '10px',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      border: active ? 'none' : '1px solid var(--color-border)',
-                      background: active ? 'var(--color-accent)' : 'transparent',
-                      color: active ? 'var(--color-text-inverse)' : 'var(--color-text-secondary)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {d}s
-                  </button>
-                )
-              })}
-              <button
-                onClick={handleManualToggle}
-                style={{
-                  flex: 1,
-                  padding: '7px 0',
-                  borderRadius: '10px',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  border: asymmetric && selectedPresetId === null ? 'none' : '1px solid var(--color-border)',
-                  background: asymmetric && selectedPresetId === null ? 'var(--color-accent)' : 'transparent',
-                  color: asymmetric && selectedPresetId === null ? 'var(--color-text-inverse)' : 'var(--color-text-secondary)',
-                  cursor: 'pointer',
-                }}
-              >
-                Manuel
-              </button>
-            </div>
+            {/* Rangée standard : 4s / 5.5s / 6s / Manuel — masquée pour les exercices Custom */}
+            {!isCustom && (
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {QUICK_DURATIONS.map((d) => {
+                  const active = !asymmetric && symDuration === d && selectedPresetId === null
+                  return (
+                    <button
+                      key={d}
+                      onClick={() => handleQuickSelect(d)}
+                      style={{
+                        flex: 1,
+                        padding: '7px 0',
+                        borderRadius: '10px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        border: active ? 'none' : '1px solid var(--color-border)',
+                        background: active ? 'var(--color-accent)' : 'transparent',
+                        color: active ? 'var(--color-text-inverse)' : 'var(--color-text-secondary)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {d}s
+                    </button>
+                  )
+                })}
+                <button
+                  onClick={handleManualToggle}
+                  style={{
+                    flex: 1,
+                    padding: '7px 0',
+                    borderRadius: '10px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    border: asymmetric && selectedPresetId === null ? 'none' : '1px solid var(--color-border)',
+                    background: asymmetric && selectedPresetId === null ? 'var(--color-accent)' : 'transparent',
+                    color: asymmetric && selectedPresetId === null ? 'var(--color-text-inverse)' : 'var(--color-text-secondary)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Manuel
+                </button>
+              </div>
+            )}
 
             {/* Rangée custom presets (si existants) */}
             {customPresets.length > 0 && (

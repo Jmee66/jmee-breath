@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react'
-import { X, Pause, Play } from 'lucide-react'
+import { X, Pause, Play, Volume2, VolumeX } from 'lucide-react'
 import type { Exercise } from '@core/types'
 import { useBreathSession } from '../hooks/useBreathSession'
 import { useBreathStore } from '../store/breathStore'
+import { useSoundStore } from '../sounds/soundStore'
 import { BreathVisual } from '../graphics/BreathVisual'
 import { BreathText } from '../text/BreathText'
 
@@ -20,6 +21,8 @@ export function BreathScreen({ exercise, onComplete, onExit }: BreathScreenProps
   const { start, pause, resume, stop } = useBreathSession()
   const isPaused = useBreathStore((s) => s.isPaused)
   const isRunning = useBreathStore((s) => s.isRunning)
+  const soundEnabled = useSoundStore((s) => s.soundEnabled)
+  const setSoundEnabled = useSoundStore((s) => s.setSoundEnabled)
 
   // Démarre la session au montage
   useEffect(() => {
@@ -83,6 +86,30 @@ export function BreathScreen({ exercise, onComplete, onExit }: BreathScreenProps
         aria-label="Arrêter la session"
       >
         <X size={18} />
+      </button>
+
+      {/* Bouton son — haut droit */}
+      <button
+        onClick={() => setSoundEnabled(!soundEnabled)}
+        style={{
+          position: 'absolute',
+          top: 'calc(env(safe-area-inset-top, 0px) + 16px)',
+          right: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '40px',
+          height: '40px',
+          borderRadius: '12px',
+          border: '1px solid var(--color-border)',
+          background: 'transparent',
+          color: soundEnabled ? 'var(--color-text-muted)' : 'var(--color-text-muted)',
+          opacity: soundEnabled ? 1 : 0.4,
+          cursor: 'pointer',
+        }}
+        aria-label={soundEnabled ? 'Couper le son' : 'Activer le son'}
+      >
+        {soundEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
       </button>
 
       {/* Visuel principal */}

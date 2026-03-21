@@ -1,6 +1,9 @@
 import { useRef, useCallback, useEffect } from 'react'
 import { useBreathStore } from '../store/breathStore'
 import { BreathClock } from '../clock/BreathClock'
+import { useSoundStore } from '../sounds/soundStore'
+import { BreathVoiceGuide } from '../voice/BreathVoiceGuide'
+import { useVoiceGuideStore } from '../voice/voiceGuideStore'
 import { eventBus } from '@core/events'
 import type { Exercise } from '@core/types'
 import type { ScheduledPhase } from '../clock/types'
@@ -10,15 +13,19 @@ import type { ScheduledPhase } from '../clock/types'
  * Seul pont entre BreathClock (AudioContext) et le monde React (Zustand + eventBus).
  */
 export function useBreathSession() {
-  const clockRef = useRef<BreathClock | null>(null)
-  const exerciseRef = useRef<Exercise | null>(null)
-  const sessionIdRef = useRef<string | null>(null)
+  const clockRef      = useRef<BreathClock | null>(null)
+  const voiceGuideRef = useRef<BreathVoiceGuide | null>(null)
+  const exerciseRef   = useRef<Exercise | null>(null)
+  const sessionIdRef  = useRef<string | null>(null)
 
   const store = useBreathStore()
 
   // ── Callbacks du clock ──────────────────────────────────────────────────
 
   const handlePhaseChange = useCallback((phase: ScheduledPhase) => {
+    // Guidage vocal — annonce la phase dès le changement (toutes phases, y compris préparation)
+    voiceGuideRef.current?.speak(phase.internalType)
+
     // setPhaseComplete : un seul set() Zustand → zéro render intermédiaire, transitions sans saut
     store.setPhaseComplete(phase.publicType, phase.internalType, phase.durationSeconds)
     if (phase.repIndex >= 0) {
@@ -86,12 +93,25 @@ export function useBreathSession() {
     const sessionId = crypto.randomUUID()
     sessionIdRef.current = sessionId
 
-    const clock = new BreathClock({
-      onPhaseChange: handlePhaseChange,
-      onTick: handleTick,
-      onRepComplete: handleRepComplete,
-      onSessionComplete: handleSessionComplete,
+    // Lit les préférences au moment du démarrage (snapshot, pas de subscription)
+    const { soundEnabled, soundVolume, soundSet } = useSoundStore.getState()
+    const { voiceEnabled, voiceVolume, voiceRate } = useVoiceGuideStore.getState()
+
+    voiceGuideRef.current = new BreathVoiceGuide({
+      enabled: voiceEnabled,
+      volume:  voiceVolume,
+      rate:    voiceRate,
     })
+
+    const clock = new BreathClock(
+      {
+        onPhaseChange: handlePhaseChange,
+        onTick: handleTick,
+        onRepComplete: handleRepComplete,
+        onSessionComplete: handleSessionComplete,
+      },
+      { enabled: soundEnabled, volume: soundVolume, soundSet },
+    )
     clockRef.current = clock
 
     store.startSession(sessionId, exercise.repetitions)
@@ -107,6 +127,7 @@ export function useBreathSession() {
   }, [handlePhaseChange, handleTick, handleRepComplete, handleSessionComplete, store])
 
   const pause = useCallback(() => {
+    voiceGuideRef.current?.cancel()
     clockRef.current?.pause()
     store.pauseSession()
     const sessionId = sessionIdRef.current
@@ -127,6 +148,8 @@ export function useBreathSession() {
   const stop = useCallback((abandoned = true) => {
     const sessionId = sessionIdRef.current
     const exercise = exerciseRef.current
+    voiceGuideRef.current?.cancel()
+    voiceGuideRef.current = null
     clockRef.current?.stop()
     clockRef.current = null
 
@@ -149,6 +172,8 @@ export function useBreathSession() {
   // Cleanup au démontage du composant
   useEffect(() => {
     return () => {
+      voiceGuideRef.current?.cancel()
+      voiceGuideRef.current = null
       clockRef.current?.stop()
       clockRef.current = null
     }

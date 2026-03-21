@@ -1,5 +1,7 @@
 import type { Exercise, Phase, PhaseType } from '@core/types'
 import type { BreathClockCallbacks, InternalPhaseType, ScheduledPhase } from './types'
+import { BreathSoundEngine } from '../sounds/BreathSoundEngine'
+import type { SoundSettings } from '../sounds/soundTypes'
 
 const PREPARATION_DURATION = 3 // secondes de préparation avant la 1re rep
 
@@ -12,6 +14,9 @@ function resolveInternalType(phase: Phase, prevPublicType: PhaseType): InternalP
  * Moteur de timing pour une session de respiration.
  * Classe pure TypeScript — aucun import React.
  * Utilise AudioContext pour un timing sample-accurate.
+ *
+ * Le BreathSoundEngine partage le même AudioContext pour garantir
+ * que les sons soient alignés au sample près avec les phases visuelles.
  */
 export class BreathClock {
   private audioCtx: AudioContext
@@ -20,10 +25,14 @@ export class BreathClock {
   private rafId: number | null = null
   private pausedAt: number | null = null
   private readonly callbacks: BreathClockCallbacks
+  private readonly soundEngine: BreathSoundEngine | null
 
-  constructor(callbacks: BreathClockCallbacks) {
+  constructor(callbacks: BreathClockCallbacks, soundSettings?: SoundSettings) {
     this.audioCtx = new AudioContext()
     this.callbacks = callbacks
+    this.soundEngine = soundSettings?.enabled
+      ? new BreathSoundEngine(this.audioCtx, soundSettings)
+      : null
   }
 
   /** Démarre la session. Doit être appelé depuis un geste utilisateur (autoplay policy). */
@@ -34,6 +43,10 @@ export class BreathClock {
     }
     this.scheduledPhases = this.buildSchedule(exercise, this.audioCtx.currentTime)
     this.currentPhaseIndex = -1
+
+    // Planifie les sons sur l'ensemble de la session
+    this.soundEngine?.schedulePhases(this.scheduledPhases)
+
     this.tick()
   }
 
@@ -57,6 +70,16 @@ export class BreathClock {
         : p
     )
     this.pausedAt = null
+
+    // Sons : annule les sons en attente (anciens temps) et replanifie aux nouveaux
+    if (this.soundEngine) {
+      this.soundEngine.cancelAll()
+      const now = this.audioCtx.currentTime
+      this.soundEngine.schedulePhases(
+        this.scheduledPhases.filter((p) => p.startTime > now),
+      )
+    }
+
     void this.audioCtx.resume()
     this.tick()
   }
@@ -66,6 +89,7 @@ export class BreathClock {
       cancelAnimationFrame(this.rafId)
       this.rafId = null
     }
+    this.soundEngine?.cancelAll()
     void this.audioCtx.close()
   }
 

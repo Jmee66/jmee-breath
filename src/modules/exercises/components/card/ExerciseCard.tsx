@@ -95,7 +95,7 @@ export function ExerciseCard({
         <ExerciseMeta repetitions={exercise.repetitions} totalSeconds={totalSeconds} />
 
         <div className="flex items-center" style={{ gap: '8px' }}>
-          {!exercise.isPreset && onEdit && (
+          {onEdit && (
             <button
               onClick={() => onEdit(exercise)}
               className="p-2 rounded-lg text-text-muted hover:text-text-primary transition-colors"
@@ -104,7 +104,7 @@ export function ExerciseCard({
               <Pencil size={14} />
             </button>
           )}
-          {!exercise.isPreset && onDelete && (
+          {onDelete && (
             <button
               onClick={() => onDelete(exercise.id)}
               className="p-2 rounded-lg text-text-muted hover:text-status-error transition-colors"

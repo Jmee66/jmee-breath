@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { PageContainer } from '@modules/theme'
 import { useSoundStore, useVoiceGuideStore, useDroneStore } from '@modules/breath-engine'
 import type { SoundSet } from '@modules/breath-engine'
@@ -6,13 +8,35 @@ import { version } from '../../package.json'
 
 // ── Helpers UI ────────────────────────────────────────────────────────────────
 
-function GroupHeader({ children }: { children: React.ReactNode }) {
+function GroupHeader({ children, open, onToggle }: {
+  children: React.ReactNode
+  open: boolean
+  onToggle: () => void
+}) {
   return (
-    <div className="bg-bg-overlay px-4 py-2">
+    <button
+      onClick={onToggle}
+      style={{
+        width: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        background: 'var(--color-bg-overlay)',
+        padding: '8px 16px',
+        border: 'none',
+        cursor: 'pointer',
+        textAlign: 'left',
+      }}
+    >
       <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">
         {children}
       </p>
-    </div>
+      <ChevronDown
+        size={14}
+        className="text-text-muted"
+        style={{ transform: open ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.2s' }}
+      />
+    </button>
   )
 }
 
@@ -22,12 +46,12 @@ function SettingRow({ label, hint, children }: {
   children: React.ReactNode
 }) {
   return (
-    <div className="flex items-center justify-between gap-6 px-4 py-3.5">
-      <div className="min-w-0 flex-1">
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '24px', padding: '14px 16px' }}>
+      <div style={{ minWidth: 0, flex: 1 }}>
         <p className="text-sm font-medium text-text-primary">{label}</p>
-        {hint && <p className="mt-0.5 text-xs text-text-muted">{hint}</p>}
+        {hint && <p className="text-xs text-text-muted" style={{ marginTop: '2px' }}>{hint}</p>}
       </div>
-      <div className="flex-shrink-0">{children}</div>
+      <div style={{ flexShrink: 0 }}>{children}</div>
     </div>
   )
 }
@@ -45,12 +69,12 @@ function SliderRow({ label, hint, value, onChange, min, max, step, disabled, ico
   iconRight?: React.ReactNode
 }) {
   return (
-    <div className={`px-4 py-3.5 ${disabled ? 'pointer-events-none opacity-40' : ''}`}>
-      <div className="mb-2.5 flex items-center justify-between">
+    <div style={{ padding: '14px 16px', pointerEvents: disabled ? 'none' : 'auto', opacity: disabled ? 0.4 : 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
         <p className="text-sm font-medium text-text-primary">{label}</p>
         {hint && <p className="text-xs text-text-muted">{hint}</p>}
       </div>
-      <div className="flex items-center gap-2.5">
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
         {iconLeft}
         <input
           type="range"
@@ -59,8 +83,7 @@ function SliderRow({ label, hint, value, onChange, min, max, step, disabled, ico
           step={step}
           value={value}
           onChange={(e) => onChange(parseFloat(e.target.value))}
-          className="flex-1"
-          style={{ accentColor: 'var(--color-accent)' }}
+          style={{ flex: 1, accentColor: 'var(--color-accent)' }}
         />
         {iconRight}
       </div>
@@ -119,6 +142,11 @@ const SOUND_SET_HINTS: Record<SoundSet, string> = {
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SettingsPageRoute() {
+  // Sections ouvertes/fermées
+  const [openPhase, setOpenPhase]   = useState(true)
+  const [openDrone, setOpenDrone]   = useState(true)
+  const [openVoice, setOpenVoice]   = useState(true)
+
   // Sons de phases
   const soundEnabled    = useSoundStore((s) => s.soundEnabled)
   const soundVolume     = useSoundStore((s) => s.soundVolume)
@@ -153,103 +181,115 @@ export default function SettingsPageRoute() {
         <div className="card divide-y divide-border overflow-hidden p-0">
 
           {/* ── Sons de phase ────────────────────────────────────────────── */}
-          <GroupHeader>Sons de phase</GroupHeader>
+          <GroupHeader open={openPhase} onToggle={() => setOpenPhase((v) => !v)}>
+            Sons de phase
+          </GroupHeader>
 
-          <SettingRow
-            label="Sons de respiration"
-            hint="Bip à chaque changement de phase"
-          >
-            <Toggle value={soundEnabled} onChange={setSoundEnabled} />
-          </SettingRow>
+          {openPhase && <>
+            <SettingRow
+              label="Sons de respiration"
+              hint="Bip à chaque changement de phase"
+            >
+              <Toggle value={soundEnabled} onChange={setSoundEnabled} />
+            </SettingRow>
 
-          <SliderRow
-            label="Volume"
-            value={soundVolume}
-            onChange={setSoundVolume}
-            min={0} max={1} step={0.05}
-            disabled={!soundEnabled}
-            iconLeft={<VolumeX size={13} className="text-text-muted" />}
-            iconRight={<Volume2 size={13} className="text-text-muted" />}
-          />
+            <SliderRow
+              label="Volume"
+              value={soundVolume}
+              onChange={setSoundVolume}
+              min={0} max={1} step={0.05}
+              disabled={!soundEnabled}
+              iconLeft={<VolumeX size={13} className="text-text-muted" />}
+              iconRight={<Volume2 size={13} className="text-text-muted" />}
+            />
 
-          {/* Sélecteur de timbre */}
-          <div className={`px-4 py-3.5 ${!soundEnabled ? 'pointer-events-none opacity-40' : ''}`}>
-            <p className="mb-2.5 text-sm font-medium text-text-primary">Timbre</p>
-            <div className="flex gap-2">
-              {(['bowl', 'sine', 'crystal', 'minimal'] as SoundSet[]).map((set) => (
-                <button
-                  key={set}
-                  onClick={() => setSoundSet(set)}
-                  title={SOUND_SET_HINTS[set]}
-                  style={{
-                    flex: 1,
-                    padding: '8px 4px',
-                    borderRadius: '10px',
-                    border: soundSet === set
-                      ? '1.5px solid var(--color-accent)'
-                      : '1.5px solid var(--color-border)',
-                    background: soundSet === set ? 'var(--color-accent-dim)' : 'transparent',
-                    color: soundSet === set ? 'var(--color-accent)' : 'var(--color-text-secondary)',
-                    fontSize: '13px',
-                    fontWeight: soundSet === set ? 600 : 400,
-                    cursor: 'pointer',
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  {SOUND_SET_LABELS[set]}
-                </button>
-              ))}
+            {/* Sélecteur de timbre */}
+            <div style={{ padding: '14px 16px', pointerEvents: !soundEnabled ? 'none' : 'auto', opacity: !soundEnabled ? 0.4 : 1 }}>
+              <p className="text-sm font-medium text-text-primary" style={{ marginBottom: '10px' }}>Timbre</p>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {(['bowl', 'sine', 'crystal', 'minimal'] as SoundSet[]).map((set) => (
+                  <button
+                    key={set}
+                    onClick={() => setSoundSet(set)}
+                    title={SOUND_SET_HINTS[set]}
+                    style={{
+                      flex: 1,
+                      padding: '8px 4px',
+                      borderRadius: '10px',
+                      border: soundSet === set
+                        ? '1.5px solid var(--color-accent)'
+                        : '1.5px solid var(--color-border)',
+                      background: soundSet === set ? 'var(--color-accent-dim)' : 'transparent',
+                      color: soundSet === set ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+                      fontSize: '13px',
+                      fontWeight: soundSet === set ? 600 : 400,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {SOUND_SET_LABELS[set]}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          </>}
 
           {/* ── Fond sonore ──────────────────────────────────────────────── */}
-          <GroupHeader>Fond sonore</GroupHeader>
+          <GroupHeader open={openDrone} onToggle={() => setOpenDrone((v) => !v)}>
+            Fond sonore
+          </GroupHeader>
 
-          <SettingRow
-            label="Nappe continue"
-            hint="Pad grave sur toute la durée de chaque phase"
-          >
-            <Toggle value={droneEnabled} onChange={setDroneEnabled} />
-          </SettingRow>
+          {openDrone && <>
+            <SettingRow
+              label="Fond respiratoire"
+              hint="Monte à l'inspiration, descend à l'expiration"
+            >
+              <Toggle value={droneEnabled} onChange={setDroneEnabled} />
+            </SettingRow>
 
-          <SliderRow
-            label="Volume"
-            value={droneVolume}
-            onChange={setDroneVolume}
-            min={0} max={1} step={0.05}
-            disabled={!droneEnabled}
-            iconLeft={<VolumeX size={13} className="text-text-muted" />}
-            iconRight={<Volume2 size={13} className="text-text-muted" />}
-          />
+            <SliderRow
+              label="Volume"
+              value={droneVolume}
+              onChange={setDroneVolume}
+              min={0} max={1} step={0.05}
+              disabled={!droneEnabled}
+              iconLeft={<VolumeX size={13} className="text-text-muted" />}
+              iconRight={<Volume2 size={13} className="text-text-muted" />}
+            />
+          </>}
 
           {/* ── Guidage vocal ─────────────────────────────────────────────── */}
-          <GroupHeader>Guidage vocal</GroupHeader>
+          <GroupHeader open={openVoice} onToggle={() => setOpenVoice((v) => !v)}>
+            Guidage vocal
+          </GroupHeader>
 
-          <SettingRow
-            label="Voix méditatives"
-            hint="Annonce chaque phase à voix douce"
-          >
-            <Toggle value={voiceEnabled} onChange={setVoiceEnabled} />
-          </SettingRow>
+          {openVoice && <>
+            <SettingRow
+              label="Voix méditatives"
+              hint="Annonce chaque phase à voix douce"
+            >
+              <Toggle value={voiceEnabled} onChange={setVoiceEnabled} />
+            </SettingRow>
 
-          <SliderRow
-            label="Volume"
-            value={voiceVolume}
-            onChange={setVoiceVolume}
-            min={0} max={1} step={0.05}
-            disabled={!voiceEnabled}
-            iconLeft={<VolumeX size={13} className="text-text-muted" />}
-            iconRight={<Volume2 size={13} className="text-text-muted" />}
-          />
+            <SliderRow
+              label="Volume"
+              value={voiceVolume}
+              onChange={setVoiceVolume}
+              min={0} max={1} step={0.05}
+              disabled={!voiceEnabled}
+              iconLeft={<VolumeX size={13} className="text-text-muted" />}
+              iconRight={<Volume2 size={13} className="text-text-muted" />}
+            />
 
-          <SliderRow
-            label="Débit"
-            hint={voiceRate <= 0.6 ? 'Très lent' : voiceRate <= 0.85 ? 'Lent' : 'Normal'}
-            value={voiceRate}
-            onChange={setVoiceRate}
-            min={0.5} max={1.0} step={0.05}
-            disabled={!voiceEnabled}
-          />
+            <SliderRow
+              label="Débit"
+              hint={voiceRate <= 0.6 ? 'Très lent' : voiceRate <= 0.85 ? 'Lent' : 'Normal'}
+              value={voiceRate}
+              onChange={setVoiceRate}
+              min={0.5} max={1.0} step={0.05}
+              disabled={!voiceEnabled}
+            />
+          </>}
 
         </div>
       </section>

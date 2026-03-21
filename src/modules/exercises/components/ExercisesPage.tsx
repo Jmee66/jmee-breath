@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { Plus, X } from 'lucide-react'
 import { PageContainer } from '@modules/theme'
 import { useExerciseStore } from '../store/exerciseStore'
+import { useSettingsStore } from '@modules/settings'
 import { getAllExercises, saveExercise, deleteExercise, seedPresets } from '../services/exerciseRepository'
 import type { Exercise } from '@core/types'
 import { ExerciseList } from './ExerciseList'
@@ -11,8 +12,17 @@ import { ExerciseEditor } from './ExerciseEditor'
 
 export function ExercisesPage() {
   const { exercises, isLoading, setExercises, setLoading } = useExerciseStore()
+  const { settings, update: updateSettings } = useSettingsStore()
   const [showEditor, setShowEditor] = useState(false)
   const [editingExercise, setEditingExercise] = useState<Exercise | undefined>()
+
+  const hiddenPresetIds = settings.hiddenPresetIds ?? []
+
+  // Filter out hidden presets
+  const visibleExercises = useMemo(
+    () => exercises.filter((ex) => !ex.isPreset || !hiddenPresetIds.includes(ex.id)),
+    [exercises, hiddenPresetIds],
+  )
 
   // Load exercises from IndexedDB on mount
   useEffect(() => {
@@ -32,10 +42,13 @@ export function ExercisesPage() {
 
   async function handleSave(data: Omit<Exercise, 'id' | 'createdAt' | 'updatedAt'>) {
     const now = new Date().toISOString()
+    // Editing a preset → creates a custom copy with a new id
+    const isEditingPreset = editingExercise?.isPreset ?? false
     const exercise: Exercise = {
       ...data,
-      id: editingExercise?.id ?? `custom-${crypto.randomUUID()}`,
-      createdAt: editingExercise?.createdAt ?? now,
+      isPreset: false,
+      id: (!isEditingPreset && editingExercise?.id) ? editingExercise.id : `custom-${crypto.randomUUID()}`,
+      createdAt: (!isEditingPreset && editingExercise?.createdAt) ? editingExercise.createdAt : now,
       updatedAt: now,
     }
     await saveExercise(exercise)
@@ -51,9 +64,16 @@ export function ExercisesPage() {
   }
 
   async function handleDelete(id: string) {
-    await deleteExercise(id)
-    const all = await getAllExercises()
-    setExercises(all)
+    const exercise = exercises.find((ex) => ex.id === id)
+    if (!exercise) return
+    if (exercise.isPreset) {
+      // Hide the preset instead of deleting (seedPresets would re-add it)
+      await updateSettings({ hiddenPresetIds: [...hiddenPresetIds, id] })
+    } else {
+      await deleteExercise(id)
+      const all = await getAllExercises()
+      setExercises(all)
+    }
   }
 
   function handleCloseEditor() {
@@ -107,7 +127,7 @@ export function ExercisesPage() {
         </div>
       ) : (
         <ExerciseList
-          exercises={exercises}
+          exercises={visibleExercises}
           onEdit={handleEdit}
           onDelete={handleDelete}
         />

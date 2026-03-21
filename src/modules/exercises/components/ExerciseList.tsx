@@ -151,8 +151,8 @@ export function ExerciseList({ exercises, onEdit, onDelete }: ExerciseListProps)
               isFavorite={favorites.includes(ex.id)}
               onToggleFavorite={handleToggleFavorite}
               onStart={handleStart}
-              onEdit={!ex.isPreset ? onEdit : undefined}
-              onDelete={!ex.isPreset ? onDelete : undefined}
+              onEdit={onEdit}
+              onDelete={onDelete}
             />
           ))}
         </section>

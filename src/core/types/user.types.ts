@@ -32,6 +32,7 @@ export interface UserSettings {
   voice: VoiceSettings
   notifications: NotificationSettings
   favoriteExerciseIds: string[]
+  hiddenPresetIds: string[]
 }
 
 export interface UserProfile {
@@ -76,5 +77,6 @@ export function defaultUserSettings(): UserSettings {
       reminderDays: [1, 2, 3, 4, 5],
     },
     favoriteExerciseIds: [],
+    hiddenPresetIds: [],
   }
 }

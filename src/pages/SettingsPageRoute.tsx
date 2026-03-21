@@ -6,11 +6,13 @@ import { version } from '../../package.json'
 
 // ── Helpers UI ────────────────────────────────────────────────────────────────
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
+function GroupHeader({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-text-muted">
-      {children}
-    </h2>
+    <div className="bg-bg-overlay px-4 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+        {children}
+      </p>
+    </div>
   )
 }
 
@@ -43,7 +45,7 @@ function SliderRow({ label, hint, value, onChange, min, max, step, disabled, ico
   iconRight?: React.ReactNode
 }) {
   return (
-    <div className={`px-4 py-3.5 ${disabled ? 'opacity-40 pointer-events-none' : ''}`}>
+    <div className={`px-4 py-3.5 ${disabled ? 'pointer-events-none opacity-40' : ''}`}>
       <div className="mb-2.5 flex items-center justify-between">
         <p className="text-sm font-medium text-text-primary">{label}</p>
         {hint && <p className="text-xs text-text-muted">{hint}</p>}
@@ -142,10 +144,16 @@ export default function SettingsPageRoute() {
   return (
     <PageContainer title="Réglages">
 
-      {/* ── Sons de phases ── */}
       <section>
-        <SectionTitle>Son</SectionTitle>
+        <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-text-muted">
+          Son & Voix
+        </h2>
+
+        {/* Carte unique — tous les réglages sonores */}
         <div className="card divide-y divide-border overflow-hidden p-0">
+
+          {/* ── Sons de phase ────────────────────────────────────────────── */}
+          <GroupHeader>Sons de phase</GroupHeader>
 
           <SettingRow
             label="Sons de respiration"
@@ -164,7 +172,8 @@ export default function SettingsPageRoute() {
             iconRight={<Volume2 size={13} className="text-text-muted" />}
           />
 
-          <div className={`px-4 py-3.5 ${!soundEnabled ? 'opacity-40 pointer-events-none' : ''}`}>
+          {/* Sélecteur de timbre */}
+          <div className={`px-4 py-3.5 ${!soundEnabled ? 'pointer-events-none opacity-40' : ''}`}>
             <p className="mb-2.5 text-sm font-medium text-text-primary">Timbre</p>
             <div className="flex gap-2">
               {(['bowl', 'sine', 'crystal', 'minimal'] as SoundSet[]).map((set) => (
@@ -193,17 +202,12 @@ export default function SettingsPageRoute() {
             </div>
           </div>
 
-        </div>
-      </section>
-
-      {/* ── Fond sonore continu ── */}
-      <section>
-        <SectionTitle>Fond sonore</SectionTitle>
-        <div className="card divide-y divide-border overflow-hidden p-0">
+          {/* ── Fond sonore ──────────────────────────────────────────────── */}
+          <GroupHeader>Fond sonore</GroupHeader>
 
           <SettingRow
             label="Nappe continue"
-            hint="Pad doux sur toute la durée de chaque phase"
+            hint="Pad grave sur toute la durée de chaque phase"
           >
             <Toggle value={droneEnabled} onChange={setDroneEnabled} />
           </SettingRow>
@@ -218,13 +222,8 @@ export default function SettingsPageRoute() {
             iconRight={<Volume2 size={13} className="text-text-muted" />}
           />
 
-        </div>
-      </section>
-
-      {/* ── Guidage vocal ── */}
-      <section>
-        <SectionTitle>Guidage vocal</SectionTitle>
-        <div className="card divide-y divide-border overflow-hidden p-0">
+          {/* ── Guidage vocal ─────────────────────────────────────────────── */}
+          <GroupHeader>Guidage vocal</GroupHeader>
 
           <SettingRow
             label="Voix méditatives"

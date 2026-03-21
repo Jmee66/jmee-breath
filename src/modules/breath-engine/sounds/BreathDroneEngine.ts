@@ -25,14 +25,14 @@
 import type { ScheduledPhase, InternalPhaseType } from '../clock/types'
 import type { DroneSettings } from './droneTypes'
 
-// ── Fréquences (une octave sous les tonales — registre chaleureux, non-conflictuel) ──
+// ── Fréquences (×0.8 vs version précédente — registre très grave, méditatif profond) ──
 const DRONE_FREQUENCY: Record<InternalPhaseType, number | null> = {
   preparation:  null,
-  inhale:       261,  // C4 — ouverture
-  'hold-full':  329,  // E4 — plénitude
-  exhale:       196,  // G3 — relâchement
-  'hold-empty': 130,  // C3 — vide profond
-  recovery:     220,  // A3 — résolution
+  inhale:       207,  // ≈ A♭3 — ouverture
+  'hold-full':  261,  // C4   — plénitude
+  exhale:       156,  // ≈ E♭3 — relâchement
+  'hold-empty': 104,  // ≈ A♭2 — vide profond
+  recovery:     174,  // F3   — résolution
 }
 
 // Désaccord en cents pour les 3 oscillateurs : battement lent naturel

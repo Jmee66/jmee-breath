@@ -2,6 +2,7 @@ import { PageContainer } from '@modules/theme'
 import { useSoundStore, useVoiceGuideStore } from '@modules/breath-engine'
 import type { SoundSet } from '@modules/breath-engine'
 import { Volume2, VolumeX } from 'lucide-react'
+import { version } from '../../package.json'
 
 // ── Helpers UI ────────────────────────────────────────────────────────────────
 
@@ -222,6 +223,8 @@ export default function SettingsPageRoute() {
 
         </div>
       </section>
+
+      <p className="pt-2 text-center text-xs text-text-muted">v{version}</p>
 
     </PageContainer>
   )

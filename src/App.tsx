@@ -13,7 +13,7 @@ import SettingsPageRoute from '@pages/SettingsPageRoute'
 
 export default function App() {
   return (
-    <BrowserRouter basename="/apnea-pwa">
+    <BrowserRouter basename="/jmee-breath">
       <Routes>
         <Route element={<AppShell />}>
           <Route index element={<HomePage />} />

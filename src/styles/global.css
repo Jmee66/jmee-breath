@@ -1,0 +1,124 @@
+@import '../modules/theme/tokens/design-tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Reset & base ──────────────────────────────────────────────────────────── */
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    color-scheme: dark;
+    font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background-color: var(--color-bg-base);
+    color: var(--color-text-primary);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    line-height: 1.5;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    /* Éviter le bounce scroll iOS sur le body */
+    overscroll-behavior: none;
+  }
+
+  #root {
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Scrollbar personnalisée — desktop */
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--color-bg-base);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 2px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-accent-dim);
+  }
+
+  /* Focus visible — accessibilité */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Sélection de texte */
+  ::selection {
+    background: var(--color-accent-dim);
+    color: var(--color-text-primary);
+  }
+}
+
+/* ── Utilitaires ───────────────────────────────────────────────────────────── */
+@layer utilities {
+  .safe-top    { padding-top: var(--safe-top); }
+  .safe-bottom { padding-bottom: var(--safe-bottom); }
+
+  /* Texte tronqué */
+  .truncate-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* Card de base */
+  .card {
+    background: var(--color-bg-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 1rem;
+  }
+
+  .card-elevated {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: 1rem;
+  }
+
+  /* Divider */
+  .divider {
+    border-color: var(--color-border-subtle);
+  }
+
+  /* Glass effect léger */
+  .glass {
+    background: rgba(15, 22, 40, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+}
+
+/* ── Animations ────────────────────────────────────────────────────────────── */
+@keyframes breathPulse {
+  0%, 100% { filter: brightness(1); }
+  50%       { filter: brightness(1.15); }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

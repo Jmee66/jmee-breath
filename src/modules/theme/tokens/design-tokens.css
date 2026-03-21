@@ -1,0 +1,55 @@
+/**
+ * Design Tokens — Apnea Trainer
+ * Thème sombre, sobre, élégant.
+ * Toutes les couleurs de l'application sont définies ici.
+ */
+
+:root {
+  /* ── Fond ─────────────────────────────────────────────────────────────── */
+  --color-bg-base:     #080d1a;   /* Fond principal — noir bleuté profond */
+  --color-bg-surface:  #0f1628;   /* Cards, panneau */
+  --color-bg-elevated: #16203a;   /* Modales, dropdowns */
+  --color-bg-overlay:  #1c2a4a;   /* Hover, sélection */
+
+  /* ── Texte ────────────────────────────────────────────────────────────── */
+  --color-text-primary:   #e8eef7;  /* Texte principal — blanc légèrement bleuté */
+  --color-text-secondary: #94a3b8;  /* Labels, descriptions */
+  --color-text-muted:     #4a5568;  /* Placeholders, désactivé */
+  --color-text-inverse:   #080d1a;  /* Texte sur fond clair (boutons) */
+
+  /* ── Accent — bleu cyan apnée ─────────────────────────────────────────── */
+  --color-accent:     #38bdf8;  /* Accent principal */
+  --color-accent-soft:#0ea5e9;  /* Variante légèrement plus foncée */
+  --color-accent-dim: #0c4a6e;  /* Fond accent (badges, highlights) */
+
+  /* ── Bordures ─────────────────────────────────────────────────────────── */
+  --color-border:        #1e2d45;
+  --color-border-subtle: #131f33;
+
+  /* ── Couleurs des phases respiratoires ───────────────────────────────── */
+  --color-phase-inhale:      #38bdf8;  /* Bleu — inspiration */
+  --color-phase-hold-full:   #38bdf8;  /* Bleu — rétention pleine (même que inhale) */
+  --color-phase-exhale:      #a78bfa;  /* Mauve — expiration */
+  --color-phase-hold-empty:  #a78bfa;  /* Mauve — rétention vide (même que exhale) */
+  --color-phase-recovery:    #34d399;  /* Vert — récupération */
+  --color-phase-hold:        #a78bfa;  /* Alias générique (compat event bus) */
+
+  /* ── Status ───────────────────────────────────────────────────────────── */
+  --color-status-success: #34d399;
+  --color-status-warning: #fbbf24;
+  --color-status-error:   #f87171;
+  --color-status-info:    #38bdf8;
+
+  /* ── Breath circle ────────────────────────────────────────────────────── */
+  --circle-min:    0.55;
+  --circle-max:    1.0;
+  --breath-duration: 4s;
+
+  /* ── Spacing ──────────────────────────────────────────────────────────── */
+  --safe-top:    env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* ── Nav ──────────────────────────────────────────────────────────────── */
+  --nav-height-bottom: 64px;
+  --nav-width-side:    220px;
+}

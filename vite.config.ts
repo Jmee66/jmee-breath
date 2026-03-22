@@ -39,7 +39,7 @@ export default defineConfig({
       manifest: {
         name: 'Apnea Trainer',
         short_name: 'Apnea',
-        description: 'Application de coaching apnée v0.1.7 — guidage, journal, coach IA',
+        description: 'Application de coaching apnée v0.1.8 — guidage, journal, coach IA',
         theme_color: '#0a0f1e',
         background_color: '#0a0f1e',
         display: 'standalone',

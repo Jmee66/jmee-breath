@@ -19,7 +19,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       devOptions: { enabled: true },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,wav}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        globIgnores: ['**/river.wav'],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/.*\.supabase\.co\//,

@@ -61,13 +61,6 @@ function formatChrono(ms: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${tenth}`
 }
 
-/** MM:SS pour le compte à rebours warm-up */
-function formatCountdown(ms: number): string {
-  const totalS = Math.ceil(ms / 1000)
-  const m = Math.floor(totalS / 60)
-  const s = totalS % 60
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-}
 
 /** M:SS court pour les badges */
 function formatShort(ms: number): string {

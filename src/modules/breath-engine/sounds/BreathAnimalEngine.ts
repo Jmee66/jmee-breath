@@ -126,10 +126,8 @@ export class BreathAnimalEngine {
 
   // ── Vent ──────────────────────────────────────────────────────────────────
   private windSource:   AudioBufferSourceNode | null = null
-  private windBaseGain: GainNode | null              = null
-  private windGustGain: GainNode | null              = null
-  private windLfo:      OscillatorNode | null        = null
-  private windLfoGain:  GainNode | null              = null
+  private windGustGain: GainNode | null       = null
+  private windLfo:      OscillatorNode | null = null
 
   constructor(private readonly audioCtx: AudioContext, volume: number) {
     this.masterGain            = audioCtx.createGain()
@@ -386,7 +384,6 @@ export class BreathAnimalEngine {
 
     const windBaseGain      = ctx.createGain()
     windBaseGain.gain.value = 0.038
-    this.windBaseGain       = windBaseGain
 
     const lfo           = ctx.createOscillator()
     lfo.type            = 'sine'
@@ -397,7 +394,6 @@ export class BreathAnimalEngine {
     lfoDepth.connect(windBaseGain.gain)
     lfo.start()
     this.windLfo     = lfo
-    this.windLfoGain = lfoDepth
 
     const windGustGain      = ctx.createGain()
     windGustGain.gain.value = 1.0
@@ -422,10 +418,8 @@ export class BreathAnimalEngine {
     try { this.windSource?.stop() } catch { /* déjà stoppé */ }
     try { this.windLfo?.stop()    } catch { /* déjà stoppé */ }
     this.windSource   = null
-    this.windBaseGain = null
     this.windGustGain = null
     this.windLfo      = null
-    this.windLfoGain  = null
   }
 
   /**

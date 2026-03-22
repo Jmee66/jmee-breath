@@ -19,8 +19,27 @@ export function useBreathSession() {
   const voiceGuideRef = useRef<BreathVoiceGuide | null>(null)
   const exerciseRef   = useRef<Exercise | null>(null)
   const sessionIdRef  = useRef<string | null>(null)
+  const wakeLockRef   = useRef<WakeLockSentinel | null>(null)
 
   const store = useBreathStore()
+
+  // ── Wake Lock ────────────────────────────────────────────────────────────
+  // Empêche le téléphone de verrouiller l'écran pendant une session active.
+  // Le WakeLock est libéré automatiquement par l'OS lors du verrouillage écran
+  // → il faut le ré-acquérir quand la page redevient visible.
+  const requestWakeLock = useCallback(async () => {
+    if (!('wakeLock' in navigator)) return
+    try {
+      wakeLockRef.current = await (navigator as Navigator & { wakeLock: { request(type: string): Promise<WakeLockSentinel> } }).wakeLock.request('screen')
+    } catch {
+      // Permission refusée, mode batterie, ou non supporté — on continue sans
+    }
+  }, [])
+
+  const releaseWakeLock = useCallback(() => {
+    wakeLockRef.current?.release().catch(() => {})
+    wakeLockRef.current = null
+  }, [])
 
   // Souscriptions réactives aux volumes et toggles — mise à jour des masterGain en temps réel
   const soundEnabled = useSoundStore((s) => s.soundEnabled)
@@ -36,16 +55,24 @@ export function useBreathSession() {
   useEffect(() => { voiceGuideRef.current?.setEnabled(voiceEnabled)               }, [voiceEnabled])
 
   // Reprise automatique si l'AudioContext a été suspendu par le système
-  // (verrouillage écran, appel entrant, changement d'onglet sur iOS/Android)
+  // (verrouillage écran, appel entrant, changement d'onglet sur iOS/Android).
+  // + Ré-acquisition du Wake Lock (libéré automatiquement à l'écran verrouillé).
   useEffect(() => {
-    const onVisible = () => {
+    const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
+        // Ré-acquiert le Wake Lock si une session est active (non en pause utilisateur)
+        if (clockRef.current && !useBreathStore.getState().isPaused) {
+          void requestWakeLock()
+        }
         clockRef.current?.handlePageVisible()
+      } else {
+        // Stoppe proprement le rAF (évite le bug rafId fantôme)
+        clockRef.current?.handlePageHidden()
       }
     }
-    document.addEventListener('visibilitychange', onVisible)
-    return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [])
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [requestWakeLock])
 
   // ── Callbacks du clock ──────────────────────────────────────────────────
 
@@ -148,6 +175,7 @@ export function useBreathSession() {
     store.startSession(sessionId, exercise.repetitions)
 
     await clock.start(exercise) // attend audioCtx.resume() si nécessaire
+    void requestWakeLock()      // garde l'écran allumé pendant la session
 
     eventBus.emit('SESSION_STARTED', {
       sessionId,
@@ -155,26 +183,28 @@ export function useBreathSession() {
       startedAtAudio: clock.getAudioTime(),
       startedAt: new Date().toISOString(),
     })
-  }, [handlePhaseChange, handleTick, handleRepComplete, handleSessionComplete, store])
+  }, [handlePhaseChange, handleTick, handleRepComplete, handleSessionComplete, store, requestWakeLock])
 
   const pause = useCallback(() => {
     voiceGuideRef.current?.cancel()
     clockRef.current?.pause()
+    releaseWakeLock() // libère le Wake Lock quand l'utilisateur met en pause
     store.pauseSession()
     const sessionId = sessionIdRef.current
     if (sessionId) {
       eventBus.emit('SESSION_PAUSED', { sessionId, pausedAt: Date.now() })
     }
-  }, [store])
+  }, [store, releaseWakeLock])
 
   const resume = useCallback(() => {
     clockRef.current?.resume()
+    void requestWakeLock() // ré-acquiert le Wake Lock à la reprise
     store.resumeSession()
     const sessionId = sessionIdRef.current
     if (sessionId) {
       eventBus.emit('SESSION_RESUMED', { sessionId, resumedAt: Date.now() })
     }
-  }, [store])
+  }, [store, requestWakeLock])
 
   const stop = useCallback((abandoned = true) => {
     const sessionId = sessionIdRef.current
@@ -183,6 +213,7 @@ export function useBreathSession() {
     voiceGuideRef.current = null
     clockRef.current?.stop()
     clockRef.current = null
+    releaseWakeLock() // libère le Wake Lock à la fin de la session
 
     if (store.isRunning && sessionId && exercise) {
       eventBus.emit('SESSION_COMPLETED', {
@@ -198,7 +229,7 @@ export function useBreathSession() {
       })
     }
     store.endSession()
-  }, [store])
+  }, [store, releaseWakeLock])
 
   // Cleanup au démontage du composant
   useEffect(() => {
@@ -207,8 +238,9 @@ export function useBreathSession() {
       voiceGuideRef.current = null
       clockRef.current?.stop()
       clockRef.current = null
+      releaseWakeLock()
     }
-  }, [])
+  }, [releaseWakeLock])
 
   return { start, pause, resume, stop }
 }

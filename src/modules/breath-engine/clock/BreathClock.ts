@@ -149,16 +149,44 @@ export class BreathClock {
   }
 
   /**
-   * À appeler quand la page redevient visible (visibilitychange).
-   * Reprend l'AudioContext si le système l'a suspendu sans que l'utilisateur
-   * ait mis en pause (verrouillage écran, appel entrant, changement d'onglet).
+   * À appeler quand la page passe en arrière-plan (visibilitychange → hidden).
+   * Stoppe le rAF proprement et remet rafId à null pour que handlePageVisible()
+   * puisse relancer la boucle sans condition.
+   */
+  handlePageHidden(): void {
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId)
+      this.rafId = null
+    }
+  }
+
+  /**
+   * À appeler quand la page redevient visible (visibilitychange → visible).
+   * Reprend l'AudioContext si le système l'a suspendu (verrouillage écran,
+   * appel entrant, changement d'onglet) et relance la boucle rAF.
+   *
+   * Bug corrigé : le navigateur stoppe rAF lors du verrouillage MAIS
+   * rafId reste non-null → il faut toujours annuler l'ancien id avant tick().
    */
   handlePageVisible(): void {
     if (this.isUserPaused) return
-    if (this.audioCtx.state !== 'suspended') return
-    void this.audioCtx.resume().then(() => {
-      if (this.rafId === null) this.tick()
-    })
+    if (this.audioCtx.state === 'closed') return
+
+    // Annule le rafId fantôme (navigateur stoppe rAF sans remettre rafId à null)
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId)
+      this.rafId = null
+    }
+
+    if (this.audioCtx.state !== 'running') {
+      // 'suspended' sur Android/desktop, 'interrupted' sur iOS
+      void this.audioCtx.resume().then(() => {
+        if (this.rafId === null) this.tick()
+      })
+    } else {
+      // AudioContext déjà running (rAF s'était arrêté seul)
+      this.tick()
+    }
   }
 
   // ── Boucle principale (rAF) ──────────────────────────────────────────────

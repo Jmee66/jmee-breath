@@ -11,7 +11,7 @@ const mainItems = [
   { to: '/stats',     icon: BarChart2, label: 'Statistiques' },
   { to: '/exercises', icon: Wind,      label: 'Exercices' },
   { to: '/coach',     icon: Brain,     label: 'Coach IA' },
-  { to: '/timer',     icon: Timer,     label: 'Timer libre' },
+  { to: '/timer',     icon: Timer,     label: 'Timer' },
 ]
 
 const bottomItems = [

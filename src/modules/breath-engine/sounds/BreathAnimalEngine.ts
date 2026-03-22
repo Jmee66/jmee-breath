@@ -21,7 +21,7 @@
  * Web Audio API Level 1 (Chrome iOS / macOS / Windows).
  */
 
-type ChirpShape = 'rise' | 'fall' | 'arch' | 'valley' | 'flat'
+type ChirpShape = 'rise' | 'fall' | 'arch' | 'valley' | 'flat' | 'trill' | 'glitch'
 
 interface ProximityTier {
   gainRange:     [number, number]  // gain d'appel [min, max]
@@ -43,42 +43,49 @@ interface ProximityTier {
   releaseRange:  [number, number]
   /** Formes de contour fréquentiel possibles pour ce tier. */
   shapes:        ChirpShape[]
+  /** Types d'oscillateur carrier possibles (variété timbre). */
+  waveTypes:     OscillatorType[]
 }
 
 const TIERS: ProximityTier[] = [
   // ── Très proche — aigu, brillant, présent, pan large ──────────────────────
+  // gainRange : ×0.80 (−20% très proche) ×0.90 (−10% global) = ×0.72
   {
-    gainRange:     [0.47, 0.72],
+    gainRange:     [0.34, 0.52],
     freqRange:     [2200, 3900],
     panRange:      [0.55, 0.88],
     intervalRange: [28600, 71500],
-    notesRange:    [2, 4],
+    notesRange:    [2, 5],
     filterFreq:    null,
     vibratoDepth:  0.022,
-    modIndexRange: [1.2, 2.8],
+    modIndexRange: [1.2, 4.2],
     harmonicGain:  0.18,
     attackRange:   [0.005, 0.012],
     releaseRange:  [0.025, 0.055],
-    shapes:        ['rise', 'fall', 'arch', 'valley', 'flat'],
+    shapes:        ['rise', 'fall', 'arch', 'valley', 'flat', 'trill', 'glitch'],
+    waveTypes:     ['sine', 'sine', 'triangle', 'sawtooth'],
   },
   // ── Moyen — lumineux, modéré ───────────────────────────────────────────────
+  // gainRange : ×0.90 (−10% global)
   {
-    gainRange:     [0.28, 0.48],
+    gainRange:     [0.25, 0.43],
     freqRange:     [1000, 2400],
     panRange:      [0.25, 0.58],
     intervalRange: [11700, 36400],
-    notesRange:    [2, 5],
+    notesRange:    [2, 6],
     filterFreq:    null,
     vibratoDepth:  0.018,
-    modIndexRange: [0.8, 2.2],
+    modIndexRange: [0.8, 3.0],
     harmonicGain:  0.10,
     attackRange:   [0.008, 0.018],
     releaseRange:  [0.035, 0.065],
-    shapes:        ['rise', 'fall', 'arch', 'flat'],
+    shapes:        ['rise', 'fall', 'arch', 'flat', 'trill'],
+    waveTypes:     ['sine', 'sine', 'triangle'],
   },
   // ── Lointain — doux, légèrement étouffé ───────────────────────────────────
+  // gainRange : ×0.90 (−10% global)
   {
-    gainRange:     [0.10, 0.22],
+    gainRange:     [0.09, 0.20],
     freqRange:     [500, 1500],
     panRange:      [0.08, 0.38],
     intervalRange: [5000, 18000],
@@ -90,10 +97,12 @@ const TIERS: ProximityTier[] = [
     attackRange:   [0.015, 0.030],
     releaseRange:  [0.050, 0.090],
     shapes:        ['rise', 'fall', 'flat'],
+    waveTypes:     ['sine'],
   },
   // ── Très lointain — quasi inaudible, centré, grave, très filtré ───────────
+  // gainRange : ×0.90 (−10% global)
   {
-    gainRange:     [0.035, 0.104],
+    gainRange:     [0.032, 0.094],
     freqRange:     [300, 800],
     panRange:      [0.00, 0.18],
     intervalRange: [3500, 14000],
@@ -105,6 +114,7 @@ const TIERS: ProximityTier[] = [
     attackRange:   [0.025, 0.045],
     releaseRange:  [0.070, 0.120],
     shapes:        ['rise', 'fall'],
+    waveTypes:     ['sine'],
   },
 ]
 
@@ -238,7 +248,7 @@ export class BreathAnimalEngine {
 
     // ── Carrier ──────────────────────────────────────────────────────────────
     const carrier = ctx.createOscillator()
-    carrier.type  = 'sine'
+    carrier.type  = tier.waveTypes[Math.floor(Math.random() * tier.waveTypes.length)]
     carrier.frequency.value = freq
     modGain.connect(carrier.frequency)   // FM : additionnel à la fréquence de base
     vibGain.connect(carrier.frequency)   // Vibrato : additionnel
@@ -349,6 +359,31 @@ export class BreathAnimalEngine {
         param.setValueAtTime(baseFreq, startTime)
         param.exponentialRampToValueAtTime(dip, midT)
         param.exponentialRampToValueAtTime(target, end)
+        break
+      }
+      case 'trill': {
+        // Alternance rapide entre deux hauteurs — effet trille/vibrato large
+        const step  = rand(0.028, 0.055)
+        const ratio = rand(1.06, 1.18)
+        let tt = startTime
+        let up = false
+        while (tt < startTime + duration - step * 0.5) {
+          param.setValueAtTime(up ? baseFreq * ratio : baseFreq, tt)
+          tt += step
+          up = !up
+        }
+        break
+      }
+      case 'glitch': {
+        // Sauts de fréquence aléatoires — effet électronique/mécanique
+        const nPts = randInt(3, 7)
+        for (let j = 0; j <= nPts; j++) {
+          const tg   = startTime + (j / nPts) * duration
+          const fVal = (j === 0 || j === nPts)
+            ? baseFreq
+            : baseFreq * rand(0.60, 1.65)
+          param.setValueAtTime(fVal, tg)
+        }
         break
       }
       case 'flat':

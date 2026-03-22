@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { PageContainer } from '@modules/theme'
-import { useSoundStore, useVoiceGuideStore, useDroneStore } from '@modules/breath-engine'
-import type { SoundSet } from '@modules/breath-engine'
+import { useSoundStore, useVoiceGuideStore, useRiverStore } from '@modules/breath-engine'
 import { Volume2, VolumeX } from 'lucide-react'
 import { version } from '../../package.json'
 
@@ -125,49 +124,35 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
   )
 }
 
-const SOUND_SET_LABELS: Record<SoundSet, string> = {
-  bowl:    'Bol',
-  sine:    'Doux',
-  crystal: 'Cristal',
-  minimal: 'Minimal',
-}
-
-const SOUND_SET_HINTS: Record<SoundSet, string> = {
-  bowl:    'Bol tibétain synthétisé, longue résonance',
-  sine:    'Onde sinusoïdale, attaque douce',
-  crystal: 'Triangle, résonance longue',
-  minimal: 'Bip court et discret',
-}
-
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SettingsPageRoute() {
   // Sections ouvertes/fermées
   const [openPhase, setOpenPhase]   = useState(true)
-  const [openDrone, setOpenDrone]   = useState(true)
+  const [openRiver, setOpenRiver]   = useState(true)
   const [openVoice, setOpenVoice]   = useState(true)
 
   // Sons de phases
   const soundEnabled    = useSoundStore((s) => s.soundEnabled)
   const soundVolume     = useSoundStore((s) => s.soundVolume)
-  const soundSet        = useSoundStore((s) => s.soundSet)
   const setSoundEnabled = useSoundStore((s) => s.setSoundEnabled)
   const setSoundVolume  = useSoundStore((s) => s.setSoundVolume)
-  const setSoundSet     = useSoundStore((s) => s.setSoundSet)
 
-  // Fond sonore continu
-  const droneEnabled    = useDroneStore((s) => s.droneEnabled)
-  const droneVolume     = useDroneStore((s) => s.droneVolume)
-  const setDroneEnabled = useDroneStore((s) => s.setDroneEnabled)
-  const setDroneVolume  = useDroneStore((s) => s.setDroneVolume)
+  // Rivière
+  const riverEnabled    = useRiverStore((s) => s.riverEnabled)
+  const riverVolume     = useRiverStore((s) => s.riverVolume)
+  const setRiverEnabled = useRiverStore((s) => s.setRiverEnabled)
+  const setRiverVolume  = useRiverStore((s) => s.setRiverVolume)
 
   // Guidage vocal
   const voiceEnabled    = useVoiceGuideStore((s) => s.voiceEnabled)
   const voiceVolume     = useVoiceGuideStore((s) => s.voiceVolume)
   const voiceRate       = useVoiceGuideStore((s) => s.voiceRate)
+  const voicePitch      = useVoiceGuideStore((s) => s.voicePitch)
   const setVoiceEnabled = useVoiceGuideStore((s) => s.setVoiceEnabled)
   const setVoiceVolume  = useVoiceGuideStore((s) => s.setVoiceVolume)
   const setVoiceRate    = useVoiceGuideStore((s) => s.setVoiceRate)
+  const setVoicePitch   = useVoiceGuideStore((s) => s.setVoicePitch)
 
   return (
     <PageContainer title="Réglages">
@@ -187,8 +172,8 @@ export default function SettingsPageRoute() {
 
           {openPhase && <>
             <SettingRow
-              label="Sons de respiration"
-              hint="Bip à chaque changement de phase"
+              label="Sons de phase"
+              hint="Bol tibétain + accords harmoniques par phase"
             >
               <Toggle value={soundEnabled} onChange={setSoundEnabled} />
             </SettingRow>
@@ -202,57 +187,27 @@ export default function SettingsPageRoute() {
               iconLeft={<VolumeX size={13} className="text-text-muted" />}
               iconRight={<Volume2 size={13} className="text-text-muted" />}
             />
-
-            {/* Sélecteur de timbre */}
-            <div style={{ padding: '14px 16px', pointerEvents: !soundEnabled ? 'none' : 'auto', opacity: !soundEnabled ? 0.4 : 1 }}>
-              <p className="text-sm font-medium text-text-primary" style={{ marginBottom: '10px' }}>Timbre</p>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                {(['bowl', 'sine', 'crystal', 'minimal'] as SoundSet[]).map((set) => (
-                  <button
-                    key={set}
-                    onClick={() => setSoundSet(set)}
-                    title={SOUND_SET_HINTS[set]}
-                    style={{
-                      flex: 1,
-                      padding: '8px 4px',
-                      borderRadius: '10px',
-                      border: soundSet === set
-                        ? '1.5px solid var(--color-accent)'
-                        : '1.5px solid var(--color-border)',
-                      background: soundSet === set ? 'var(--color-accent-dim)' : 'transparent',
-                      color: soundSet === set ? 'var(--color-accent)' : 'var(--color-text-secondary)',
-                      fontSize: '13px',
-                      fontWeight: soundSet === set ? 600 : 400,
-                      cursor: 'pointer',
-                      transition: 'all 0.15s',
-                    }}
-                  >
-                    {SOUND_SET_LABELS[set]}
-                  </button>
-                ))}
-              </div>
-            </div>
           </>}
 
-          {/* ── Fond sonore ──────────────────────────────────────────────── */}
-          <GroupHeader open={openDrone} onToggle={() => setOpenDrone((v) => !v)}>
-            Fond sonore
+          {/* ── Rivière ──────────────────────────────────────────────────── */}
+          <GroupHeader open={openRiver} onToggle={() => setOpenRiver((v) => !v)}>
+            Rivière
           </GroupHeader>
 
-          {openDrone && <>
+          {openRiver && <>
             <SettingRow
-              label="Fond respiratoire"
-              hint="Monte à l'inspiration, descend à l'expiration"
+              label="Son de rivière"
+              hint="Bruit de fond naturel et apaisant"
             >
-              <Toggle value={droneEnabled} onChange={setDroneEnabled} />
+              <Toggle value={riverEnabled} onChange={setRiverEnabled} />
             </SettingRow>
 
             <SliderRow
               label="Volume"
-              value={droneVolume}
-              onChange={setDroneVolume}
+              value={riverVolume}
+              onChange={setRiverVolume}
               min={0} max={1} step={0.05}
-              disabled={!droneEnabled}
+              disabled={!riverEnabled}
               iconLeft={<VolumeX size={13} className="text-text-muted" />}
               iconRight={<Volume2 size={13} className="text-text-muted" />}
             />
@@ -265,7 +220,7 @@ export default function SettingsPageRoute() {
 
           {openVoice && <>
             <SettingRow
-              label="Voix méditatives"
+              label="Guidage vocal"
               hint="Annonce chaque phase à voix douce"
             >
               <Toggle value={voiceEnabled} onChange={setVoiceEnabled} />
@@ -287,6 +242,15 @@ export default function SettingsPageRoute() {
               value={voiceRate}
               onChange={setVoiceRate}
               min={0.5} max={1.0} step={0.05}
+              disabled={!voiceEnabled}
+            />
+
+            <SliderRow
+              label="Tonalité"
+              hint={voicePitch <= 0.7 ? 'Grave' : voicePitch <= 1.1 ? 'Naturelle' : 'Aiguë'}
+              value={voicePitch}
+              onChange={setVoicePitch}
+              min={0.5} max={1.5} step={0.05}
               disabled={!voiceEnabled}
             />
           </>}

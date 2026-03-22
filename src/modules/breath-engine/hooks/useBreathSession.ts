@@ -4,7 +4,7 @@ import { BreathClock } from '../clock/BreathClock'
 import { useSoundStore } from '../sounds/soundStore'
 import { useDroneStore } from '../sounds/droneStore'
 import { useRiverStore } from '../sounds/riverStore'
-import { BreathVoiceGuide } from '../voice/BreathVoiceGuide'
+import { BreathVoiceGuide, estimatePreparationDuration } from '../voice/BreathVoiceGuide'
 import { useVoiceGuideStore } from '../voice/voiceGuideStore'
 import { eventBus } from '@core/events'
 import type { Exercise } from '@core/types'
@@ -151,13 +151,22 @@ export function useBreathSession() {
     const { soundEnabled, soundVolume, soundSet } = useSoundStore.getState()
     const { droneEnabled, droneVolume }            = useDroneStore.getState()
     const { riverEnabled, riverVolume }            = useRiverStore.getState()
-    const { voiceEnabled, voiceVolume, voiceRate } = useVoiceGuideStore.getState()
+    const { voiceEnabled, voiceVolume, voiceRate, voicePitch } = useVoiceGuideStore.getState()
 
-    voiceGuideRef.current = new BreathVoiceGuide({
+    const voiceGuide = new BreathVoiceGuide({
       enabled: voiceEnabled,
       volume:  voiceVolume,
       rate:    voiceRate,
+      pitch:   voicePitch,
     })
+    voiceGuide.setExercise(exercise)
+    voiceGuideRef.current = voiceGuide
+
+    // Durée de la phase préparatoire : temps que la voix décrit l'exercice.
+    // Si la voix est désactivée, on garde une courte phase de 3 s.
+    const prepDuration = voiceEnabled
+      ? estimatePreparationDuration(exercise, voiceRate)
+      : 3
 
     const clock = new BreathClock(
       {
@@ -174,7 +183,7 @@ export function useBreathSession() {
 
     store.startSession(sessionId, exercise.repetitions)
 
-    await clock.start(exercise) // attend audioCtx.resume() si nécessaire
+    await clock.start(exercise, prepDuration) // durée préparatoire dynamique
     void requestWakeLock()      // garde l'écran allumé pendant la session
 
     eventBus.emit('SESSION_STARTED', {

@@ -7,7 +7,8 @@ import type { SoundSettings } from '../sounds/soundTypes'
 import type { DroneSettings } from '../sounds/droneTypes'
 import type { RiverSettings } from '../sounds/riverTypes'
 
-const PREPARATION_DURATION = 3 // secondes de préparation avant la 1re rep
+/** Durée minimale de la phase de préparation (voix désactivée ou fallback). */
+const PREPARATION_DURATION_DEFAULT = 3
 
 function resolveInternalType(phase: Phase, prevPublicType: PhaseType): InternalPhaseType {
   if (phase.type !== 'hold') return phase.type as InternalPhaseType
@@ -56,13 +57,18 @@ export class BreathClock {
     this.riverEngine = riverSettings ? new BreathRiverEngine(this.audioCtx, riverSettings) : null
   }
 
-  /** Démarre la session. Doit être appelé depuis un geste utilisateur (autoplay policy). */
-  async start(exercise: Exercise): Promise<void> {
+  /**
+   * Démarre la session. Doit être appelé depuis un geste utilisateur (autoplay policy).
+   * @param preparationDuration Durée de la phase de préparation en secondes.
+   *   Calculée par BreathVoiceGuide.estimatePreparationDuration() si la voix est active,
+   *   sinon PREPARATION_DURATION_DEFAULT (3 s).
+   */
+  async start(exercise: Exercise, preparationDuration = PREPARATION_DURATION_DEFAULT): Promise<void> {
     // Réveille l'AudioContext si suspendu (iOS Safari, Chrome mobile)
     if (this.audioCtx.state === 'suspended') {
       await this.audioCtx.resume()
     }
-    this.scheduledPhases  = this.buildSchedule(exercise, this.audioCtx.currentTime)
+    this.scheduledPhases  = this.buildSchedule(exercise, this.audioCtx.currentTime, preparationDuration)
     this.currentPhaseIndex = -1
 
     this.riverEngine?.start()
@@ -234,20 +240,20 @@ export class BreathClock {
 
   // ── Construction du planning ─────────────────────────────────────────────
 
-  private buildSchedule(exercise: Exercise, baseTime: number): ScheduledPhase[] {
+  private buildSchedule(exercise: Exercise, baseTime: number, preparationDuration: number): ScheduledPhase[] {
     const phases: ScheduledPhase[] = []
     let cursor = baseTime
 
     phases.push({
       internalType: 'preparation',
       publicType:   'inhale',
-      durationSeconds: PREPARATION_DURATION,
+      durationSeconds: preparationDuration,
       startTime: cursor,
-      endTime:   cursor + PREPARATION_DURATION,
+      endTime:   cursor + preparationDuration,
       repIndex:  -1,
       phaseIndex: -1,
     })
-    cursor += PREPARATION_DURATION
+    cursor += preparationDuration
 
     for (let repIndex = 0; repIndex < exercise.repetitions; repIndex++) {
       let prevPublicType: PhaseType = 'exhale'

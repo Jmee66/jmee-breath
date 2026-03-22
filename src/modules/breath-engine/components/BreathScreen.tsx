@@ -4,7 +4,6 @@ import type { Exercise } from '@core/types'
 import { useBreathSession } from '../hooks/useBreathSession'
 import { useBreathStore } from '../store/breathStore'
 import { useSoundStore } from '../sounds/soundStore'
-import { useDroneStore } from '../sounds/droneStore'
 import { useRiverStore } from '../sounds/riverStore'
 import { useVoiceGuideStore } from '../voice/voiceGuideStore'
 import { BreathVisual } from '../graphics/BreathVisual'
@@ -29,11 +28,6 @@ export function BreathScreen({ exercise, onComplete, onExit }: BreathScreenProps
   const soundVolume     = useSoundStore((s) => s.soundVolume)
   const setSoundEnabled = useSoundStore((s) => s.setSoundEnabled)
   const setSoundVolume  = useSoundStore((s) => s.setSoundVolume)
-
-  const droneEnabled    = useDroneStore((s) => s.droneEnabled)
-  const droneVolume     = useDroneStore((s) => s.droneVolume)
-  const setDroneEnabled = useDroneStore((s) => s.setDroneEnabled)
-  const setDroneVolume  = useDroneStore((s) => s.setDroneVolume)
 
   const riverEnabled    = useRiverStore((s) => s.riverEnabled)
   const riverVolume     = useRiverStore((s) => s.riverVolume)
@@ -71,7 +65,7 @@ export function BreathScreen({ exercise, onComplete, onExit }: BreathScreenProps
     onExit()
   }
 
-  const anyEnabled = soundEnabled || droneEnabled || riverEnabled || voiceEnabled
+  const anyEnabled = soundEnabled || riverEnabled || voiceEnabled
 
   return (
     <div
@@ -145,18 +139,11 @@ export function BreathScreen({ exercise, onComplete, onExit }: BreathScreenProps
             }}
           >
             <SoundRow
-              label="Bips"
+              label="Sons"
               enabled={soundEnabled}
               volume={soundVolume}
               onToggle={() => setSoundEnabled(!soundEnabled)}
               onVolume={setSoundVolume}
-            />
-            <SoundRow
-              label="Fond"
-              enabled={droneEnabled}
-              volume={droneVolume}
-              onToggle={() => setDroneEnabled(!droneEnabled)}
-              onVolume={setDroneVolume}
             />
             <SoundRow
               label="Rivière"

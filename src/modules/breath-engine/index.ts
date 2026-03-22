@@ -10,4 +10,5 @@ export type { InternalPhaseType, ScheduledPhase, BreathClockCallbacks } from './
 export { useSoundStore } from './sounds/soundStore'
 export type { SoundSettings, SoundSet } from './sounds/soundTypes'
 export { useDroneStore } from './sounds/droneStore'
+export { useRiverStore } from './sounds/riverStore'
 export { useVoiceGuideStore } from './voice/voiceGuideStore'

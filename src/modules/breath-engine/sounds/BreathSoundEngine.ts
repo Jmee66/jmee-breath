@@ -1,91 +1,111 @@
 /**
- * BreathSoundEngine — module son du breath engine.
+ * BreathSoundEngine — sons des phases respiratoires.
  *
- * Classe pure TypeScript — aucun import React.
- * Utilise le même AudioContext que BreathClock pour un timing sample-accurate.
+ * Architecture :
+ *  · Bol tibétain (une seule frappe au début du 1er inhale)
+ *  · Pad polyphonique continu pour chaque phase active
  *
- * Deux familles de sons :
- *  - Tonales (sine / crystal / minimal) : bip court à chaque changement de phase
- *  - Bowl : synthèse de bol tibétain par série harmonique inharmonique + vibrato
+ * Design sonore — tonalité Do pentatonique (+20 % vs version précédente) :
+ *  · inhale      : Do3+Sol3+Do4     — quinte ouverte + octave → aérien, s'ouvre
+ *  · hold-full   : Do3+Mi3+Sol3+Do4 — accord majeur complet  → plein, ancré
+ *  · exhale      : Do3+Fa3+La#3    — quarte + septième       → relâchement
+ *  · hold-empty  : Do3+Sol3+Ré4    — quinte + seconde haute  → vide, spacieux
+ *  · recovery    : Do3+Fa3+Do4     — quarte suspendue        → apaisement
  *
- * Architecture gain :
- *  oscillateur → gainNode (enveloppe ADSR normalisée) → masterGain (volume) → destination
- *  setVolume() met à jour masterGain en temps réel, sans relancer la session.
+ * Cross-platform (Chrome iOS / macOS / Windows) :
+ *  · Web Audio API Level 1 uniquement
+ *  · globalLpf permanent — pas de création/destruction de nœuds par phase
+ *  · pendingOscillators — annulation propre via cancelAll()
+ *  · iOS Chrome : AudioContext créé et géré par BreathClock (pas ici)
  */
 
 import type { ScheduledPhase, InternalPhaseType } from '../clock/types'
-import type { SoundSet, SoundSettings } from './soundTypes'
+import type { SoundSettings } from './soundTypes'
 
-// ── Fréquences tonales (gamme pentatonique de Do, registre médium-aigu) ──────
-const TONE_FREQUENCY: Record<InternalPhaseType, number | null> = {
-  preparation:  null,
-  inhale:       523,   // C5
-  'hold-full':  659,   // E5
-  exhale:       392,   // G4
-  'hold-empty': 261,   // C4
-  recovery:     440,   // A4
+// ── Accords par phase (Hz) ────────────────────────────────────────────────────
+// Toutes les fréquences ≥ 132 Hz pour garantir l'audibilité sur haut-parleurs
+// de téléphone et de laptop (coupure typique ~80-120 Hz).
+const PHASE_CHORDS: Partial<Record<InternalPhaseType, number[]>> = {
+  inhale:       [132.0, 198.0, 264.0],              // C3, G3, C4  — ouvert, monte
+  'hold-full':  [132.0, 166.3, 198.0, 264.0],       // C3, E3, G3, C4 — accord majeur plein
+  exhale:       [132.0, 176.2, 235.2],              // C3, F3, Bb3 — descend, se relâche
+  'hold-empty': [132.0, 198.0, 296.4],              // C3, G3, D4  — quinte ouverte, aérien
+  recovery:     [132.0, 176.2, 264.0],              // C3, F3, C4  — apaisement
 }
 
-// ── Fréquences bol (registre très grave — méditatif profond) ─────────────────
-const BOWL_FREQUENCY: Record<InternalPhaseType, number | null> = {
-  preparation:  null,
-  inhale:       174,   // F3  — ouverture, ancrage
-  'hold-full':  220,   // A3  — plénitude
-  exhale:       130,   // C3  — relâchement profond
-  'hold-empty': 110,   // A2  — vide, profondeur maximale
-  recovery:     164,   // E3  — résolution douce
+// Gain de crête par phase (normalisé — masterGain gère le volume global)
+const PHASE_PEAK: Partial<Record<InternalPhaseType, number>> = {
+  inhale:       0.124,
+  'hold-full':  0.117,
+  exhale:       0.111,
+  'hold-empty': 0.082,  // plus doux que les autres mais clairement audible
+  recovery:     0.085,
 }
 
-// ── Série harmonique inharmonique du bol tibétain ────────────────────────────
-// Les rapports légèrement non-entiers sont caractéristiques du métal battu.
-const BOWL_HARMONICS: Array<{ ratio: number; gainMult: number; decayMult: number }> = [
-  { ratio: 1.000, gainMult: 1.00, decayMult: 1.00 },  // fondamentale
-  { ratio: 2.756, gainMult: 0.38, decayMult: 0.75 },  // 1ᵉʳ partiel inharmonique
-  { ratio: 5.404, gainMult: 0.13, decayMult: 0.55 },  // 2ᵉ partiel
-  { ratio: 8.933, gainMult: 0.04, decayMult: 0.35 },  // 3ᵉ partiel (très faible)
+// Gain relatif de chaque voix dans le pad (1ère = fondamentale, les suivantes s'atténuent)
+const VOICE_GAIN_RATIOS = [1.0, 0.72, 0.52, 0.38] as const
+
+// Dispersion de pitch par voix (cents) → légère richesse, effet chorus naturel
+const DETUNE_CENTS = [-4, 0, +4, +2] as const
+
+// Filtre passe-bas global (un seul nœud, permanent, partagé entre toutes les phases)
+const LPF_FREQ = 1056  // Hz — chaleur, arrondit les harmoniques (+20 % vs 880 Hz)
+const LPF_Q    = 0.5
+
+// ── Bol tibétain ──────────────────────────────────────────────────────────────
+// Fréquence fondamentale : C4 (264 Hz) — méditative, ni trop grave ni trop aiguë
+// Série harmonique inharmonique reproduisant l'acoustique du métal battu
+const BOWL_FREQ = 264
+const BOWL_HARMONICS = [
+  { ratio: 1.000, gain: 0.28, decay: 5.0 },   // fondamentale
+  { ratio: 2.756, gain: 0.11, decay: 3.8 },   // 1er partiel inharmonique
+  { ratio: 5.404, gain: 0.05, decay: 2.5 },   // 2e partiel
+  { ratio: 8.933, gain: 0.02, decay: 1.6 },   // 3e partiel (très faible)
 ]
-
-// ── Profils tonals ────────────────────────────────────────────────────────────
-interface ToneProfile {
-  type: OscillatorType
-  attackTime: number
-  decayTime: number
-  maxGain: number
-}
-
-const TONE_PROFILE: Record<Exclude<SoundSet, 'bowl'>, ToneProfile> = {
-  sine:    { type: 'sine',     attackTime: 0.015, decayTime: 0.30, maxGain: 0.30 },
-  crystal: { type: 'triangle', attackTime: 0.010, decayTime: 0.55, maxGain: 0.25 },
-  minimal: { type: 'sine',     attackTime: 0.010, decayTime: 0.07, maxGain: 0.20 },
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class BreathSoundEngine {
-  private pendingOscillators: OscillatorNode[] = []
   private readonly masterGain: GainNode
+  private readonly globalLpf: BiquadFilterNode   // nœud permanent — pas de fuite mémoire
+  private pendingOscillators: OscillatorNode[] = []
+  private bowlScheduled = false
 
   constructor(
     private readonly audioCtx: AudioContext,
-    private readonly settings: SoundSettings,
+    settings: SoundSettings,
   ) {
-    // Nœud maître — contrôle le volume global en temps réel
+    // Chaîne fixe : oscillateurs → globalLpf → masterGain → destination
     this.masterGain = audioCtx.createGain()
     this.masterGain.gain.value = settings.enabled ? settings.volume : 0
+
+    this.globalLpf = audioCtx.createBiquadFilter()
+    this.globalLpf.type            = 'lowpass'
+    this.globalLpf.frequency.value = LPF_FREQ
+    this.globalLpf.Q.value         = LPF_Q
+
+    this.globalLpf.connect(this.masterGain)
     this.masterGain.connect(audioCtx.destination)
   }
 
-  /** Met à jour le volume maître instantanément (lissage 50 ms pour éviter les clics). */
+  /** Met à jour le volume maître à la volée (lissage 50 ms — évite les clics). */
   setVolume(volume: number): void {
     this.masterGain.gain.setTargetAtTime(volume, this.audioCtx.currentTime, 0.05)
   }
 
   schedulePhases(phases: ScheduledPhase[]): void {
+    this.bowlScheduled = false
+
     for (const phase of phases) {
-      if (this.settings.soundSet === 'bowl') {
-        this.scheduleBowlSound(phase)
-      } else {
-        this.scheduleToneSound(phase)
+      // Bol : une seule frappe au démarrage du 1er inhale (début de l'exercice)
+      if (!this.bowlScheduled && phase.internalType === 'inhale' && phase.repIndex === 0) {
+        this.scheduleBowl(phase.startTime)
+        this.bowlScheduled = true
+      }
+
+      // Pad continu pour toutes les phases actives (repIndex >= 0)
+      if (phase.repIndex >= 0) {
+        this.schedulePhasePad(phase)
       }
     }
   }
@@ -96,90 +116,96 @@ export class BreathSoundEngine {
       try { osc.stop(now) } catch { /* déjà stoppé */ }
     }
     this.pendingOscillators = []
-  }
-
-  // ── Son tonal (sine / crystal / minimal) ─────────────────────────────────
-
-  private scheduleToneSound(phase: ScheduledPhase): void {
-    const freq = TONE_FREQUENCY[phase.internalType]
-    if (freq === null) return
-
-    const t = phase.startTime
-    if (t < this.audioCtx.currentTime) return
-
-    const profile = TONE_PROFILE[this.settings.soundSet as Exclude<SoundSet, 'bowl'>]
-
-    // Les gains individuels sont normalisés (sans volume) — le masterGain gère le volume.
-    const osc  = this.audioCtx.createOscillator()
-    const gain = this.audioCtx.createGain()
-
-    osc.type = profile.type
-    osc.frequency.setValueAtTime(freq, t)
-
-    gain.gain.setValueAtTime(0, t)
-    gain.gain.linearRampToValueAtTime(profile.maxGain, t + profile.attackTime)
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + profile.attackTime + profile.decayTime)
-
-    osc.connect(gain)
-    gain.connect(this.masterGain)
-    osc.start(t)
-    osc.stop(t + profile.attackTime + profile.decayTime + 0.02)
-
-    this.track(osc)
+    this.bowlScheduled = false
   }
 
   // ── Bol tibétain ─────────────────────────────────────────────────────────
 
-  private scheduleBowlSound(phase: ScheduledPhase): void {
-    const freq = BOWL_FREQUENCY[phase.internalType]
-    if (freq === null) return
-
-    const t = phase.startTime
+  private scheduleBowl(t: number): void {
     if (t < this.audioCtx.currentTime) return
 
-    const attackTime = 0.04    // frappe douce du maillet
-    // Le bol résonne pour toute la durée de la phase — au minimum 1.5s
-    const totalDecay = Math.max(phase.durationSeconds - attackTime, 1.5)
+    const attackTime = 0.03  // frappe brève du maillet
 
     BOWL_HARMONICS.forEach((h, i) => {
-      const hFreq  = freq * h.ratio
-      const hGain  = 0.20 * h.gainMult   // normalisé — masterGain gère le volume
-      const hDecay = totalDecay * h.decayMult
-      const stopAt = t + attackTime + hDecay + 0.05
+      const freq = BOWL_FREQ * h.ratio
+      const stop = t + attackTime + h.decay + 0.1
 
       const osc  = this.audioCtx.createOscillator()
       const gain = this.audioCtx.createGain()
 
       osc.type = 'sine'
-      osc.frequency.setValueAtTime(hFreq, t)
+      osc.frequency.setValueAtTime(freq, t)
 
-      // Vibrato sur la fondamentale — shimmer caractéristique du bol
+      // Vibrato sur la fondamentale — shimmer naturel du métal
       if (i === 0) {
         const lfo     = this.audioCtx.createOscillator()
         const lfoGain = this.audioCtx.createGain()
         lfo.type = 'sine'
-        lfo.frequency.value = 4.5                // 4.5 Hz — tremblement naturel du métal
-        // Le vibrato monte progressivement après le pic d'attaque
+        lfo.frequency.value = 4.2           // 4.2 Hz — naturel, pas trop rapide
         lfoGain.gain.setValueAtTime(0, t)
-        lfoGain.gain.linearRampToValueAtTime(freq * 0.004, t + 0.8)  // ±0.4% de déviation
-        lfoGain.gain.linearRampToValueAtTime(0, t + attackTime + hDecay)
+        lfoGain.gain.linearRampToValueAtTime(freq * 0.003, t + 0.9)
+        lfoGain.gain.linearRampToValueAtTime(0, t + attackTime + h.decay)
         lfo.connect(lfoGain)
         lfoGain.connect(osc.frequency)
         lfo.start(t)
-        lfo.stop(stopAt)
+        lfo.stop(stop)
         this.track(lfo)
       }
 
       // Enveloppe : attaque douce → décroissance exponentielle lente
       gain.gain.setValueAtTime(0, t)
-      gain.gain.linearRampToValueAtTime(hGain, t + attackTime)
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + attackTime + hDecay)
+      gain.gain.linearRampToValueAtTime(h.gain, t + attackTime)
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + attackTime + h.decay)
 
       osc.connect(gain)
-      gain.connect(this.masterGain)
+      gain.connect(this.globalLpf)
       osc.start(t)
-      osc.stop(stopAt)
+      osc.stop(stop)
+      this.track(osc)
+    })
+  }
 
+  // ── Pad polyphonique continu ──────────────────────────────────────────────
+
+  private schedulePhasePad(phase: ScheduledPhase): void {
+    const freqs    = PHASE_CHORDS[phase.internalType]
+    const peakGain = PHASE_PEAK[phase.internalType]
+    if (!freqs || !peakGain) return
+
+    const t        = phase.startTime
+    const duration = phase.durationSeconds
+    if (t < this.audioCtx.currentTime || duration < 0.5) return
+
+    // Fondu in/out : 15% de la durée, borné entre 0.2 s et 1.5 s
+    const fadeIn  = Math.min(1.5, Math.max(0.2, duration * 0.15))
+    const fadeOut = Math.min(1.5, Math.max(0.2, duration * 0.15))
+    const sustainEnd = t + duration - fadeOut
+    const stop       = t + duration + 0.08   // léger buffer post-phase
+
+    freqs.forEach((baseFreq, idx) => {
+      // Légère dispersion de pitch → richesse sonore sans être perceptible
+      const cents  = DETUNE_CENTS[idx % DETUNE_CENTS.length]
+      const freq   = baseFreq * Math.pow(2, cents / 1200)
+
+      // Atténuation progressive des voix supérieures → équilibre spectral naturel
+      const voiceGain = peakGain * (VOICE_GAIN_RATIOS[idx] ?? 0.35)
+
+      const osc  = this.audioCtx.createOscillator()
+      const gain = this.audioCtx.createGain()
+
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(freq, t)
+
+      // Enveloppe : fade in → sustain → fade out
+      gain.gain.setValueAtTime(0, t)
+      gain.gain.linearRampToValueAtTime(voiceGain, t + fadeIn)
+      gain.gain.setValueAtTime(voiceGain, sustainEnd)
+      gain.gain.linearRampToValueAtTime(0.0001, t + duration)  // fin exacte de la phase
+
+      osc.connect(gain)
+      gain.connect(this.globalLpf)
+      osc.start(t)
+      osc.stop(stop)
       this.track(osc)
     })
   }

@@ -11,5 +11,5 @@ export interface RiverSettings {
 
 export const DEFAULT_RIVER_SETTINGS: RiverSettings = {
   enabled: false,
-  volume:  0.30,
+  volume:  0.35,
 }

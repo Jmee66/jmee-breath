@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom'
 import { BottomNav } from './BottomNav'
 import { SideNav } from './SideNav'
+import { useRiverAmbience } from '@modules/breath-engine'
 
 /**
  * Shell de l'application — layout responsive :
@@ -8,6 +9,8 @@ import { SideNav } from './SideNav'
  * - Desktop (≥ 1024px) : nav latérale gauche
  */
 export function AppShell() {
+  useRiverAmbience()   // lecteur rivière global — actif hors session
+
   return (
     <div className="flex h-dvh bg-bg-base">
       {/* Nav latérale desktop */}

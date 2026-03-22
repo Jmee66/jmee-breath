@@ -2,10 +2,8 @@ import type { Exercise, Phase, PhaseType } from '@core/types'
 import type { BreathClockCallbacks, InternalPhaseType, ScheduledPhase } from './types'
 import { BreathSoundEngine } from '../sounds/BreathSoundEngine'
 import { BreathDroneEngine } from '../sounds/BreathDroneEngine'
-import { BreathRiverEngine } from '../sounds/BreathRiverEngine'
 import type { SoundSettings } from '../sounds/soundTypes'
 import type { DroneSettings } from '../sounds/droneTypes'
-import type { RiverSettings } from '../sounds/riverTypes'
 
 /** Durée minimale de la phase de préparation (voix désactivée ou fallback). */
 const PREPARATION_DURATION_DEFAULT = 3
@@ -42,19 +40,16 @@ export class BreathClock {
   private readonly callbacks: BreathClockCallbacks
   private readonly soundEngine: BreathSoundEngine | null
   private readonly droneEngine: BreathDroneEngine | null
-  private readonly riverEngine: BreathRiverEngine | null
 
   constructor(
     callbacks: BreathClockCallbacks,
     soundSettings?: SoundSettings,
     droneSettings?: DroneSettings,
-    riverSettings?: RiverSettings,
   ) {
     this.audioCtx    = new AudioCtx()
     this.callbacks   = callbacks
     this.soundEngine = soundSettings ? new BreathSoundEngine(this.audioCtx, soundSettings) : null
     this.droneEngine = droneSettings ? new BreathDroneEngine(this.audioCtx, droneSettings) : null
-    this.riverEngine = riverSettings ? new BreathRiverEngine(this.audioCtx, riverSettings) : null
   }
 
   /**
@@ -71,7 +66,6 @@ export class BreathClock {
     this.scheduledPhases  = this.buildSchedule(exercise, this.audioCtx.currentTime, preparationDuration)
     this.currentPhaseIndex = -1
 
-    this.riverEngine?.start()
     this.soundEngine?.schedulePhases(this.scheduledPhases)
     this.droneEngine?.schedulePhases(this.scheduledPhases)
 
@@ -119,7 +113,6 @@ export class BreathClock {
       cancelAnimationFrame(this.rafId)
       this.rafId = null
     }
-    this.riverEngine?.stop()
     this.soundEngine?.cancelAll()
     this.droneEngine?.cancelAll()
     void this.audioCtx.close()
@@ -147,11 +140,6 @@ export class BreathClock {
   /** Active/coupe le fond sonore (mute via masterGain). */
   setDroneEnabled(enabled: boolean, volume: number): void {
     this.droneEngine?.setVolume(enabled ? volume : 0)
-  }
-
-  /** Active/coupe la rivière (mute via masterGain). */
-  setRiverEnabled(enabled: boolean, volume: number): void {
-    this.riverEngine?.setVolume(enabled ? volume : 0)
   }
 
   /**

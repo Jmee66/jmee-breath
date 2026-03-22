@@ -3,7 +3,6 @@ import { useBreathStore } from '../store/breathStore'
 import { BreathClock } from '../clock/BreathClock'
 import { useSoundStore } from '../sounds/soundStore'
 import { useDroneStore } from '../sounds/droneStore'
-import { useRiverStore } from '../sounds/riverStore'
 import { BreathVoiceGuide, estimatePreparationDuration } from '../voice/BreathVoiceGuide'
 import { useVoiceGuideStore } from '../voice/voiceGuideStore'
 import { eventBus } from '@core/events'
@@ -46,12 +45,9 @@ export function useBreathSession() {
   const soundVolume  = useSoundStore((s) => s.soundVolume)
   const droneEnabled = useDroneStore((s) => s.droneEnabled)
   const droneVolume  = useDroneStore((s) => s.droneVolume)
-  const riverEnabled = useRiverStore((s) => s.riverEnabled)
-  const riverVolume  = useRiverStore((s) => s.riverVolume)
   const voiceEnabled = useVoiceGuideStore((s) => s.voiceEnabled)
   useEffect(() => { clockRef.current?.setSoundEnabled(soundEnabled, soundVolume) }, [soundEnabled, soundVolume])
   useEffect(() => { clockRef.current?.setDroneEnabled(droneEnabled, droneVolume) }, [droneEnabled, droneVolume])
-  useEffect(() => { clockRef.current?.setRiverEnabled(riverEnabled, riverVolume) }, [riverEnabled, riverVolume])
   useEffect(() => { voiceGuideRef.current?.setEnabled(voiceEnabled)               }, [voiceEnabled])
 
   // Reprise automatique si l'AudioContext a été suspendu par le système
@@ -150,7 +146,6 @@ export function useBreathSession() {
     // Lit les préférences au moment du démarrage (snapshot, pas de subscription)
     const { soundEnabled, soundVolume, soundSet } = useSoundStore.getState()
     const { droneEnabled, droneVolume }            = useDroneStore.getState()
-    const { riverEnabled, riverVolume }            = useRiverStore.getState()
     const { voiceEnabled, voiceVolume, voiceRate, voicePitch } = useVoiceGuideStore.getState()
 
     const voiceGuide = new BreathVoiceGuide({
@@ -177,7 +172,6 @@ export function useBreathSession() {
       },
       { enabled: soundEnabled, volume: soundVolume, soundSet },
       { enabled: droneEnabled, volume: droneVolume },
-      { enabled: riverEnabled, volume: riverVolume },
     )
     clockRef.current = clock
 

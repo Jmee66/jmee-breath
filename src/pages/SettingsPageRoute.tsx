@@ -128,9 +128,9 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 
 export default function SettingsPageRoute() {
   // Sections ouvertes/fermées
-  const [openPhase, setOpenPhase]   = useState(true)
-  const [openRiver, setOpenRiver]   = useState(true)
-  const [openVoice, setOpenVoice]   = useState(true)
+  const [openPhase, setOpenPhase]   = useState(false)
+  const [openRiver, setOpenRiver]   = useState(false)
+  const [openVoice, setOpenVoice]   = useState(false)
 
   // Sons de phases
   const soundEnabled    = useSoundStore((s) => s.soundEnabled)

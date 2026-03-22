@@ -588,11 +588,24 @@ export function FreeTimerPage() {
 
     if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
 
-    // Init audio (user gesture context)
+    // Init audio (user gesture context) — webkit fallback pour iOS
     try {
       if (warmupAudioRef.current) { warmupAudioRef.current.close().catch(() => {}) }
-      warmupAudioRef.current = new AudioContext()
+      const AudioCtx = window.AudioContext
+        ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      warmupAudioRef.current = new AudioCtx()
+      if (warmupAudioRef.current.state === 'suspended') {
+        void warmupAudioRef.current.resume()
+      }
     } catch { warmupAudioRef.current = null }
+    // Déverrouille speechSynthesis sur iOS (doit être appelé depuis un geste utilisateur)
+    if ('speechSynthesis' in window) {
+      try {
+        const unlock = new SpeechSynthesisUtterance('')
+        unlock.volume = 0
+        window.speechSynthesis.speak(unlock)
+      } catch { /* ignore */ }
+    }
     lastStepIdxRef.current   = -1
     lastCountdownRef.current = -1
 

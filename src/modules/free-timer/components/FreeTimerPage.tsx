@@ -918,7 +918,7 @@ function WarmupView({
   // ── GO ! ────────────────────────────────────────────────────────────────────
   if (display.isGo) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', minHeight: '55vh', paddingTop: '2rem' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.5rem', minHeight: '60vh', paddingTop: '4rem' }}>
         <p style={{ fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.25em', color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase' }}>
           {display.protocolName}
         </p>
@@ -941,34 +941,15 @@ function WarmupView({
     : `${rem}s`
 
   return (
-    <div className="flex flex-col gap-4 pt-4">
+    <div className="flex flex-col gap-4 pt-8">
 
-      {/* En-tête : nom du protocole + phase */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: visual.color, letterSpacing: '0.05em' }}>
-          {display.protocolName}
-        </span>
-        {display.phaseName && (
-          <span style={{
-            fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)',
-            border: '1px solid rgba(255,255,255,0.15)',
-            borderRadius: '999px', padding: '0.2rem 0.65rem',
-          }}>
-            {display.phaseName}
-          </span>
-        )}
-      </div>
-
-      {/* Badge type */}
-      <div>
-        <span style={{
-          fontSize: '0.7rem', fontWeight: 600, padding: '0.25rem 0.75rem',
-          borderRadius: '999px',
-          color: visual.color,
-          background: visual.color + '1a',
-          border: `1px solid ${visual.color}40`,
-        }}>
+      {/* En-tête : type d'étape (principal) + protocole/phase (aligné droite) */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem' }}>
+        <span style={{ fontSize: '1.4rem', fontWeight: 700, color: visual.color, letterSpacing: '0.03em' }}>
           {visual.label}
+        </span>
+        <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.35)', letterSpacing: '0.08em', textTransform: 'uppercase', textAlign: 'right', flexShrink: 0 }}>
+          {display.protocolName}{display.phaseName ? ` · ${display.phaseName}` : ''}
         </span>
       </div>
 

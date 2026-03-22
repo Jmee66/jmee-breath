@@ -3,19 +3,21 @@ import type { FreeTimerSession } from '@core/types'
 import { useFreeTimerStore } from '../store/freeTimerStore'
 
 export async function saveFreeTimerSession(
-  startedAt:          string,
-  durationSeconds:    number,
-  spasmTimesSeconds:  number[],
-  notes               = '',
+  startedAt:       string,
+  durationSeconds: number,
+  lapsSeconds:     number[],
+  notes            = '',
+  mode:            'apnea' | 'free' = 'apnea',
 ): Promise<FreeTimerSession> {
   const session: FreeTimerSession = {
     id:              crypto.randomUUID(),
     startedAt,
     completedAt:     new Date().toISOString(),
     durationSeconds,
-    laps:            spasmTimesSeconds,   // laps = temps des spasmes en secondes
+    laps:            lapsSeconds,
     notes,
     syncedAt:        null,
+    mode,
   }
   await db.freeTimerSessions.put(session)
   useFreeTimerStore.getState().addSession(session)

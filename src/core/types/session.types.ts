@@ -35,4 +35,6 @@ export interface FreeTimerSession {
   laps: number[]
   notes: string
   syncedAt: string | null
+  /** 'apnea' = apnée statique avec spasmes | 'free' = chronomètre libre avec laps */
+  mode?: 'apnea' | 'free'
 }

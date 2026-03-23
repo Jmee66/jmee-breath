@@ -66,10 +66,19 @@ export function ExercisesPage() {
   async function handleDelete(id: string) {
     const exercise = exercises.find((ex) => ex.id === id)
     if (!exercise) return
+
+    // Retire toujours l'exercice des favoris — qu'il soit supprimé ou masqué.
+    // Un favori ne peut référencer qu'un exercice existant et visible.
+    const favoriteExerciseIds = (settings.favoriteExerciseIds ?? []).filter((fid) => fid !== id)
+
     if (exercise.isPreset) {
-      // Hide the preset instead of deleting (seedPresets would re-add it)
-      await updateSettings({ hiddenPresetIds: [...hiddenPresetIds, id] })
+      // Masque le preset (seedPresets le re-créerait si on le supprimait de la DB)
+      await updateSettings({
+        hiddenPresetIds: [...hiddenPresetIds, id],
+        favoriteExerciseIds,
+      })
     } else {
+      await updateSettings({ favoriteExerciseIds })
       await deleteExercise(id)
       const all = await getAllExercises()
       setExercises(all)

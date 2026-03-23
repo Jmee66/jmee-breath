@@ -29,7 +29,12 @@ export default function HomePage() {
   }, [exercises.length, setExercises])
 
   const isLoading = settingsLoading || exercisesLoading
+
+  // Garde défensive : exclut les IDs masqués ou supprimés.
+  // Un favori ne peut référencer qu'un exercice existant et visible.
+  const hiddenPresetIds = settings.hiddenPresetIds ?? []
   const favorites = settings.favoriteExerciseIds
+    .filter((id) => !hiddenPresetIds.includes(id))
     .map((id) => exercises.find((ex) => ex.id === id))
     .filter((ex): ex is Exercise => ex !== undefined)
 

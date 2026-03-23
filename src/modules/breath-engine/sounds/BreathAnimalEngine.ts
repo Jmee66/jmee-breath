@@ -171,12 +171,19 @@ export class BreathAnimalEngine {
 
   private scheduleNext(tier: ProximityTier, delayMs: number): void {
     const t = setTimeout(() => {
+      // Retire ce timer de la liste — évite la croissance indéfinie
+      const idx = this.timers.indexOf(t)
+      if (idx !== -1) this.timers.splice(idx, 1)
+
       if (!this.running) return
       if (this.audioCtx.state === 'running') this.playCall(tier)
       this.scheduleNext(tier, rand(tier.intervalRange[0], tier.intervalRange[1]))
     }, delayMs)
     this.timers.push(t)
   }
+
+  /** true si le moteur est actif (utilisé par useRiverAmbience pour le redémarrage). */
+  get isRunning(): boolean { return this.running }
 
   // ── Appel complet (phrase de N notes) ─────────────────────────────────────
 

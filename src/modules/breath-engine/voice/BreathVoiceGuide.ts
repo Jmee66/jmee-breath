@@ -221,18 +221,29 @@ export class BreathVoiceGuide {
 
     try {
       const synth = window.speechSynthesis
-      if (synth.paused) synth.resume()   // Bug iOS Chrome
+
+      // ── Bug iOS Chrome : cancel() + speak() immédiat gèle la queue ─────────
+      // Solution : toujours passer par setTimeout(50ms) pour laisser iOS
+      // terminer l'annulation avant de soumettre le nouvel énoncé.
+      if (synth.paused) synth.resume()
       synth.cancel()
 
-      const u  = new SpeechSynthesisUtterance(text)
-      u.lang   = 'fr-FR'
-      u.volume = this.settings.volume
-      u.rate   = this.settings.rate
-      u.pitch  = this.settings.pitch     // ignoré par Google TTS
+      const settings = this.settings   // capture pour le closure
+      const voice    = _cachedVoice
 
-      if (_cachedVoice) u.voice = _cachedVoice
-
-      synth.speak(u)
+      window.setTimeout(() => {
+        try {
+          // Re-vérifier l'état : peut avoir changé pendant le délai
+          if (synth.paused) synth.resume()
+          const u  = new SpeechSynthesisUtterance(text)
+          u.lang   = 'fr-FR'
+          u.volume = settings.volume
+          u.rate   = settings.rate
+          u.pitch  = settings.pitch   // ignoré par Google TTS
+          if (voice) u.voice = voice
+          synth.speak(u)
+        } catch { /* silencieux */ }
+      }, 50)
     } catch {
       // speechSynthesis peut lever dans certains contextes restreints
     }

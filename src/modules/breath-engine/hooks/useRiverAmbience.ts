@@ -90,8 +90,25 @@ export function useRiverAmbience(): void {
   // ── Reprise après verrouillage écran / changement d'onglet ───────────
   useEffect(() => {
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && enabledRef.current) {
-        void audioCtxRef.current?.resume()
+      if (document.visibilityState !== 'visible' || !enabledRef.current) return
+
+      const ctx = audioCtxRef.current
+      if (!ctx || ctx.state === 'closed') return
+
+      const doResume = () => {
+        // Relance la rivière si la source a été tuée par iOS (interrupted)
+        void engineRef.current?.ensurePlaying(RIVER_URL)
+        // Relance les oiseaux si leur boucle s'est arrêtée
+        if (animalEngineRef.current && !animalEngineRef.current.isRunning) {
+          animalEngineRef.current.start()
+        }
+      }
+
+      if (ctx.state !== 'running') {
+        // 'suspended' sur desktop, 'interrupted' sur iOS
+        void ctx.resume().then(doResume)
+      } else {
+        doResume()
       }
     }
     document.addEventListener('visibilitychange', onVisibilityChange)

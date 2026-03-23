@@ -117,4 +117,20 @@ export class BreathRiverEngine {
       this.masterGain.gain.setTargetAtTime(volume, this.audioCtx.currentTime, 0.08)
     }
   }
+
+  /**
+   * Redémarre la rivière si la source audio a été tuée par iOS (verrouillage,
+   * appel entrant). Contrairement à `loadAndStart()`, force le redémarrage
+   * même si `running === true` — à appeler depuis visibilitychange.
+   */
+  async ensurePlaying(url: string): Promise<void> {
+    if (this.source) return     // source toujours connectée, pas besoin
+    this.running = false        // force un vrai redémarrage
+    return this.loadAndStart(url)
+  }
+
+  /** true si une source est active (utile pour les checks de santé). */
+  get isActive(): boolean {
+    return this.running && this.source !== null
+  }
 }

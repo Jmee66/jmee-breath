@@ -59,8 +59,9 @@ export class BreathClock {
    *   sinon PREPARATION_DURATION_DEFAULT (3 s).
    */
   async start(exercise: Exercise, preparationDuration = PREPARATION_DURATION_DEFAULT): Promise<void> {
-    // Réveille l'AudioContext si suspendu (iOS Safari, Chrome mobile)
-    if (this.audioCtx.state === 'suspended') {
+    // Réveille l'AudioContext si suspendu ou interrompu.
+    // iOS utilise 'interrupted' (appel entrant, verrouillage) — pas 'suspended'.
+    if (this.audioCtx.state !== 'running') {
       await this.audioCtx.resume()
     }
     this.scheduledPhases  = this.buildSchedule(exercise, this.audioCtx.currentTime, preparationDuration)

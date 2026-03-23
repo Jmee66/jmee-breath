@@ -49,9 +49,9 @@ interface ProximityTier {
 
 const TIERS: ProximityTier[] = [
   // ── Très proche — aigu, brillant, présent, pan large ──────────────────────
-  // gainRange : ×0.80 (−20% très proche) ×0.90 (−10% global) = ×0.72
+  // gainRange : ×0.80 (−20% très proche) ×0.90 (−10% global) ×0.80 (−20% v0.2.3) = ×0.576
   {
-    gainRange:     [0.34, 0.52],
+    gainRange:     [0.27, 0.42],
     freqRange:     [2200, 3900],
     panRange:      [0.55, 0.88],
     intervalRange: [28600, 71500],
@@ -66,9 +66,9 @@ const TIERS: ProximityTier[] = [
     waveTypes:     ['sine', 'sine', 'triangle', 'sawtooth'],
   },
   // ── Moyen — lumineux, modéré ───────────────────────────────────────────────
-  // gainRange : ×0.90 (−10% global)
+  // gainRange : ×0.90 (−10% global) ×0.80 (−20% v0.2.3)
   {
-    gainRange:     [0.25, 0.43],
+    gainRange:     [0.20, 0.34],
     freqRange:     [1000, 2400],
     panRange:      [0.25, 0.58],
     intervalRange: [11700, 36400],
@@ -83,9 +83,9 @@ const TIERS: ProximityTier[] = [
     waveTypes:     ['sine', 'sine', 'triangle'],
   },
   // ── Lointain — doux, légèrement étouffé ───────────────────────────────────
-  // gainRange : ×0.90 (−10% global)
+  // gainRange : ×0.90 (−10% global) ×0.80 (−20% v0.2.3)
   {
-    gainRange:     [0.09, 0.20],
+    gainRange:     [0.072, 0.16],
     freqRange:     [500, 1500],
     panRange:      [0.08, 0.38],
     intervalRange: [5000, 18000],
@@ -100,9 +100,9 @@ const TIERS: ProximityTier[] = [
     waveTypes:     ['sine'],
   },
   // ── Très lointain — quasi inaudible, centré, grave, très filtré ───────────
-  // gainRange : ×0.90 (−10% global)
+  // gainRange : ×0.90 (−10% global) ×0.80 (−20% v0.2.3)
   {
-    gainRange:     [0.032, 0.094],
+    gainRange:     [0.026, 0.075],
     freqRange:     [300, 800],
     panRange:      [0.00, 0.18],
     intervalRange: [3500, 14000],
@@ -425,13 +425,13 @@ export class BreathAnimalEngine {
     filter.Q.value         = 0.6
 
     const windBaseGain      = ctx.createGain()
-    windBaseGain.gain.value = 0.038
+    windBaseGain.gain.value = 0.030   // −20 % (v0.2.3)
 
     const lfo           = ctx.createOscillator()
     lfo.type            = 'sine'
     lfo.frequency.value = 0.065   // ≈ 15.4 s / cycle
     const lfoDepth      = ctx.createGain()
-    lfoDepth.gain.value = 0.018
+    lfoDepth.gain.value = 0.014   // −20 % (v0.2.3)
     lfo.connect(lfoDepth)
     lfoDepth.connect(windBaseGain.gain)
     lfo.start()

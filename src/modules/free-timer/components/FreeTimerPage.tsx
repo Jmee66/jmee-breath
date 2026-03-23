@@ -518,7 +518,9 @@ export function FreeTimerPage() {
   const protocolRef      = useRef<WarmupProtocol | null>(null)
   const lapsRef          = useRef<number[]>([])
   const modeRef          = useRef<TimerMode>('apnea')
+  const phaseRef         = useRef<TimerPhase>('idle')
   const rafRef           = useRef<number | null>(null)
+  const tickFnRef        = useRef<(() => void) | null>(null)
   const flashTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef       = useRef(true)
   // Son warmup
@@ -526,14 +528,45 @@ export function FreeTimerPage() {
   const lastStepIdxRef   = useRef(-1)
   const lastCountdownRef = useRef(-1)
 
-  // Sync modeRef with mode state
-  useEffect(() => { modeRef.current = mode }, [mode])
+  // Sync modeRef / phaseRef with state
+  useEffect(() => { modeRef.current  = mode  }, [mode])
+  useEffect(() => { phaseRef.current = phase }, [phase])
 
+  // ── Restore session after iOS page kill ─────────────────────────────────────
   useEffect(() => {
     mountedRef.current = true
     getBestFreeTimerSession().then((s) => {
       if (s && mountedRef.current) setBestSessionSeconds(s.durationSeconds)
     })
+
+    // Restore running timer if iOS killed the page while timer was active
+    try {
+      const raw = sessionStorage.getItem('apnea_running')
+      if (raw) {
+        const saved = JSON.parse(raw) as { startWallMs: number; startedAt: string; mode: TimerMode }
+        const age = Date.now() - saved.startWallMs
+        if (age > 0 && age < 3_600_000) {          // max 1 h
+          startWallRef.current  = saved.startWallMs
+          startedAtRef.current  = saved.startedAt
+          modeRef.current       = saved.mode
+          lapsRef.current       = []
+          setMode(saved.mode)
+          setPhase('running')
+          phaseRef.current = 'running'
+          const tick = () => {
+            if (mountedRef.current) {
+              setDisplayMs(Date.now() - startWallRef.current)
+              rafRef.current = requestAnimationFrame(tick)
+            }
+          }
+          tickFnRef.current = tick
+          rafRef.current = requestAnimationFrame(tick)
+        } else {
+          sessionStorage.removeItem('apnea_running')
+        }
+      }
+    } catch { /* ignore */ }
+
     return () => {
       mountedRef.current = false
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
@@ -541,6 +574,23 @@ export function FreeTimerPage() {
       cancelWarmupSound()
       if (warmupAudioRef.current) { warmupAudioRef.current.close().catch(() => {}) }
     }
+  }, [])
+
+  // ── Relance RAF après déverrouillage écran (iOS suspend RAF) ────────────────
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') return
+      // Résume AudioContext (iOS le suspend)
+      if (warmupAudioRef.current?.state === 'suspended') {
+        void warmupAudioRef.current.resume()
+      }
+      // Redémarre le RAF s'il a été tué par iOS
+      if (rafRef.current === null && tickFnRef.current) {
+        rafRef.current = requestAnimationFrame(tickFnRef.current)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
   }, [])
 
   const getElapsed = useCallback((): number => {
@@ -572,7 +622,17 @@ export function FreeTimerPage() {
         rafRef.current = requestAnimationFrame(tick)
       }
     }
+    tickFnRef.current = tick
     rafRef.current = requestAnimationFrame(tick)
+
+    // Persistance sessionStorage — survie au kill iOS
+    try {
+      sessionStorage.setItem('apnea_running', JSON.stringify({
+        startWallMs: startWallRef.current,
+        startedAt:   startedAtRef.current,
+        mode:        modeRef.current,
+      }))
+    } catch { /* ignore */ }
   }, [])
 
   const startWarmup = useCallback((durationS: number) => {
@@ -660,6 +720,7 @@ export function FreeTimerPage() {
       }
       rafRef.current = requestAnimationFrame(tick)
     }
+    tickFnRef.current = tick
     rafRef.current = requestAnimationFrame(tick)
   }, [startTimer])
 
@@ -683,6 +744,8 @@ export function FreeTimerPage() {
       cancelAnimationFrame(rafRef.current)
       rafRef.current = null
     }
+    tickFnRef.current = null
+    try { sessionStorage.removeItem('apnea_running') } catch { /* ignore */ }
     const finalMs   = getElapsed()
     const finalMode = modeRef.current
     setDisplayMs(finalMs)
@@ -726,6 +789,8 @@ export function FreeTimerPage() {
       cancelAnimationFrame(rafRef.current)
       rafRef.current = null
     }
+    tickFnRef.current = null
+    try { sessionStorage.removeItem('apnea_running') } catch { /* ignore */ }
     cancelWarmupSound()
     if (warmupAudioRef.current) { warmupAudioRef.current.close().catch(() => {}); warmupAudioRef.current = null }
     lastStepIdxRef.current   = -1

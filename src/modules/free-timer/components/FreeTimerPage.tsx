@@ -27,15 +27,30 @@ import type { FreeTimerSession, PhaseType } from '@core/types'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type TimerPhase    = 'idle' | 'warmup' | 'running' | 'finished'
-type TimerMode     = 'apnea' | 'free'
+type TimerPhase     = 'idle' | 'warmup' | 'running' | 'finished'
+type TimerMode      = 'apnea' | 'free'
 type WarmupStepType = 'breathe' | 'hold' | 'recovery' | 'inhale' | 'exhale' | 'co2' | 'go'
+
+/**
+ * Pattern d'animation BreathCircle pour chaque étape.
+ * Explicite — évite tout heuristique sur le type ou le texte.
+ */
+type WarmupBreathPattern =
+  | 'soupir'      // Soupir cyclique : 3 s inspir + 7 s expir
+  | '6-6-12'      // Cohérence cardiaque : 6 s inhale + 6 s hold + 12 s exhale
+  | 'hold-full'   // Rétention poumons pleins (statique, grand cercle)
+  | 'hold-empty'  // Rétention poumons vides / FRC (statique, petit cercle)
+  | 'inhale'      // Inspiration progressive sur toute la durée
+  | 'exhale'      // Expiration progressive sur toute la durée
+  | 'co2'         // Ocean Breath 4-8-16-4
+  | 'go'          // Décompte final
 
 interface WarmupStep {
   durationS:   number
   instruction: string
   type:        WarmupStepType
   phaseName:   string
+  pattern:     WarmupBreathPattern
 }
 interface WarmupProtocol {
   name:  string
@@ -108,65 +123,65 @@ const WARMUP_PRESETS = [
 
 const WARMUP_PROTOCOLS: Record<number, WarmupProtocol> = {
   60: { name: "L'EXPRESS", steps: [
-    { durationS: 40, type: 'breathe',  phaseName: 'Phase 1',        instruction: 'Soupir Cyclique : Inspir · Inspir · Soupir lent' },
-    { durationS: 10, type: 'inhale',   phaseName: 'Zoom',            instruction: 'Inspiration lente et profonde (Ventre · Côtes)' },
-    { durationS: 10, type: 'hold',     phaseName: 'Zoom',            instruction: 'Blocage final · Relâchement total des épaules' },
-    { durationS: 2,  type: 'go',       phaseName: '',                instruction: 'APNÉE — GO !' },
+    { durationS: 40, type: 'breathe',  pattern: 'soupir',     phaseName: 'Phase 1',        instruction: 'Soupir Cyclique : Inspir · Inspir · Soupir lent' },
+    { durationS: 10, type: 'inhale',   pattern: 'inhale',     phaseName: 'Zoom',            instruction: 'Inspiration lente et profonde (Ventre · Côtes)' },
+    { durationS: 10, type: 'hold',     pattern: 'hold-full',  phaseName: 'Zoom',            instruction: 'Blocage final · Relâchement total des épaules' },
+    { durationS: 2,  type: 'go',       pattern: 'go',         phaseName: '',                instruction: 'APNÉE — GO !' },
   ]},
   120: { name: 'LE FLASH', steps: [
-    { durationS: 100, type: 'breathe', phaseName: 'Phase 1',         instruction: 'Respiration 6-6-12 : Focus Lenteur' },
-    { durationS: 10,  type: 'exhale',  phaseName: 'Zoom',            instruction: 'Expirez tout l\'air résiduel (Vider les poumons)' },
-    { durationS: 10,  type: 'inhale',  phaseName: 'Zoom',            instruction: 'Grande Inspiration Finale par paliers' },
-    { durationS: 2,   type: 'go',      phaseName: '',                instruction: 'APNÉE — GO !' },
+    { durationS: 100, type: 'breathe', pattern: '6-6-12',     phaseName: 'Phase 1',         instruction: 'Respiration 6-6-12 : Focus Lenteur' },
+    { durationS: 10,  type: 'exhale',  pattern: 'exhale',     phaseName: 'Zoom',            instruction: 'Expirez tout l\'air résiduel (Vider les poumons)' },
+    { durationS: 10,  type: 'inhale',  pattern: 'inhale',     phaseName: 'Zoom',            instruction: 'Grande Inspiration Finale par paliers' },
+    { durationS: 2,   type: 'go',      pattern: 'go',         phaseName: '',                instruction: 'APNÉE — GO !' },
   ]},
   180: { name: "L'ÉVEIL", steps: [
-    { durationS: 60, type: 'breathe',  phaseName: 'Phase 1 · Détente', instruction: 'Respiration 6-6-12 : Calme Plat' },
-    { durationS: 30, type: 'hold',     phaseName: 'Phase 2 · Rate',    instruction: 'Apnée Poumons Vides (FRC)' },
-    { durationS: 60, type: 'recovery', phaseName: 'Phase 2 · Rate',    instruction: 'Récupération Calme' },
-    { durationS: 10, type: 'inhale',   phaseName: 'Phase 3 · Zoom',    instruction: 'Ocean Breath Léger (Inspiration 10s)' },
-    { durationS: 10, type: 'hold',     phaseName: 'Phase 3 · Zoom',    instruction: 'Expiration Passive · Blocage sur le plein' },
-    { durationS: 2,  type: 'go',       phaseName: '',                  instruction: 'APNÉE — GO !' },
+    { durationS: 60, type: 'breathe',  pattern: '6-6-12',     phaseName: 'Phase 1 · Détente', instruction: 'Respiration 6-6-12 : Calme Plat' },
+    { durationS: 30, type: 'hold',     pattern: 'hold-empty', phaseName: 'Phase 2 · Rate',    instruction: 'Apnée Poumons Vides (FRC)' },
+    { durationS: 60, type: 'recovery', pattern: 'soupir',     phaseName: 'Phase 2 · Rate',    instruction: 'Récupération Calme' },
+    { durationS: 10, type: 'inhale',   pattern: 'inhale',     phaseName: 'Phase 3 · Zoom',    instruction: 'Ocean Breath Léger (Inspiration 10s)' },
+    { durationS: 10, type: 'hold',     pattern: 'hold-full',  phaseName: 'Phase 3 · Zoom',    instruction: 'Expiration Passive · Blocage sur le plein' },
+    { durationS: 2,  type: 'go',       pattern: 'go',         phaseName: '',                  instruction: 'APNÉE — GO !' },
   ]},
   300: { name: 'LE STANDARD', steps: [
-    { durationS: 120, type: 'breathe',  phaseName: 'Phase 1 · Détente', instruction: 'Respiration 6-6-12 : Baisse Tension' },
-    { durationS: 30,  type: 'hold',     phaseName: 'Phase 2 · Rate',    instruction: 'Apnée Poumons Vides (FRC) — Cycle 1' },
-    { durationS: 30,  type: 'recovery', phaseName: 'Phase 2 · Rate',    instruction: 'Récupération' },
-    { durationS: 30,  type: 'hold',     phaseName: 'Phase 2 · Rate',    instruction: 'Apnée Poumons Vides (FRC) — Cycle 2' },
-    { durationS: 30,  type: 'recovery', phaseName: 'Phase 2 · Rate',    instruction: 'Récupération' },
-    { durationS: 40,  type: 'co2',      phaseName: 'Phase 3 · CO₂',     instruction: 'Ratio 4-8-16-4 : Ocean Breath' },
-    { durationS: 5,   type: 'inhale',   phaseName: 'Phase 4 · Zoom',    instruction: 'Inspir : Ventre' },
-    { durationS: 5,   type: 'inhale',   phaseName: 'Phase 4 · Zoom',    instruction: 'Inspir : Côtes' },
-    { durationS: 5,   type: 'inhale',   phaseName: 'Phase 4 · Zoom',    instruction: 'Inspir : Clavicules' },
-    { durationS: 5,   type: 'hold',     phaseName: 'Phase 4 · Zoom',    instruction: 'Immobilité Totale (Corps Mou)' },
-    { durationS: 2,   type: 'go',       phaseName: '',                  instruction: 'APNÉE — GO !' },
+    { durationS: 120, type: 'breathe',  pattern: '6-6-12',     phaseName: 'Phase 1 · Détente', instruction: 'Respiration 6-6-12 : Baisse Tension' },
+    { durationS: 30,  type: 'hold',     pattern: 'hold-empty', phaseName: 'Phase 2 · Rate',    instruction: 'Apnée Poumons Vides (FRC) — Cycle 1' },
+    { durationS: 30,  type: 'recovery', pattern: 'soupir',     phaseName: 'Phase 2 · Rate',    instruction: 'Récupération' },
+    { durationS: 30,  type: 'hold',     pattern: 'hold-empty', phaseName: 'Phase 2 · Rate',    instruction: 'Apnée Poumons Vides (FRC) — Cycle 2' },
+    { durationS: 30,  type: 'recovery', pattern: 'soupir',     phaseName: 'Phase 2 · Rate',    instruction: 'Récupération' },
+    { durationS: 40,  type: 'co2',      pattern: 'co2',        phaseName: 'Phase 3 · CO₂',     instruction: 'Ratio 4-8-16-4 : Ocean Breath' },
+    { durationS: 5,   type: 'inhale',   pattern: 'inhale',     phaseName: 'Phase 4 · Zoom',    instruction: 'Inspir : Ventre' },
+    { durationS: 5,   type: 'inhale',   pattern: 'inhale',     phaseName: 'Phase 4 · Zoom',    instruction: 'Inspir : Côtes' },
+    { durationS: 5,   type: 'inhale',   pattern: 'inhale',     phaseName: 'Phase 4 · Zoom',    instruction: 'Inspir : Clavicules' },
+    { durationS: 5,   type: 'hold',     pattern: 'hold-full',  phaseName: 'Phase 4 · Zoom',    instruction: 'Immobilité Totale (Corps Mou)' },
+    { durationS: 2,   type: 'go',       pattern: 'go',         phaseName: '',                  instruction: 'APNÉE — GO !' },
   ]},
   900: { name: 'LE PERFORMANCE', steps: [
-    { durationS: 300, type: 'breathe',  phaseName: 'Phase 1 · Zen',     instruction: 'Respiration 6-6-12 : Cohérence Cardiaque' },
-    { durationS: 30,  type: 'hold',     phaseName: 'Phase 2 · Rate',    instruction: 'Apnée Poumons Vides (FRC) — Cycle 1' },
-    { durationS: 60,  type: 'recovery', phaseName: 'Phase 2 · Rate',    instruction: 'Récupération Calme' },
-    { durationS: 30,  type: 'hold',     phaseName: 'Phase 2 · Rate',    instruction: 'Apnée Poumons Vides (FRC) — Cycle 2' },
-    { durationS: 60,  type: 'recovery', phaseName: 'Phase 2 · Rate',    instruction: 'Récupération Calme' },
-    { durationS: 30,  type: 'hold',     phaseName: 'Phase 2 · Rate',    instruction: 'Apnée Poumons Vides (FRC) — Cycle 3' },
-    { durationS: 60,  type: 'recovery', phaseName: 'Phase 2 · Rate',    instruction: 'Récupération Calme' },
-    { durationS: 290, type: 'co2',      phaseName: 'Phase 3 · CO₂',     instruction: 'Ratio 4-8-16-4 : Musculation CO₂' },
-    { durationS: 16,  type: 'exhale',   phaseName: 'Phase 4 · Zoom',    instruction: 'Dernière Expiration Ocean Breath' },
-    { durationS: 4,   type: 'hold',     phaseName: 'Phase 4 · Zoom',    instruction: 'Inspiration Éclair — Blocage' },
-    { durationS: 2,   type: 'go',       phaseName: '',                  instruction: 'APNÉE — GO !' },
+    { durationS: 300, type: 'breathe',  pattern: '6-6-12',     phaseName: 'Phase 1 · Zen',     instruction: 'Respiration 6-6-12 : Cohérence Cardiaque' },
+    { durationS: 30,  type: 'hold',     pattern: 'hold-empty', phaseName: 'Phase 2 · Rate',    instruction: 'Apnée Poumons Vides (FRC) — Cycle 1' },
+    { durationS: 60,  type: 'recovery', pattern: 'soupir',     phaseName: 'Phase 2 · Rate',    instruction: 'Récupération Calme' },
+    { durationS: 30,  type: 'hold',     pattern: 'hold-empty', phaseName: 'Phase 2 · Rate',    instruction: 'Apnée Poumons Vides (FRC) — Cycle 2' },
+    { durationS: 60,  type: 'recovery', pattern: 'soupir',     phaseName: 'Phase 2 · Rate',    instruction: 'Récupération Calme' },
+    { durationS: 30,  type: 'hold',     pattern: 'hold-empty', phaseName: 'Phase 2 · Rate',    instruction: 'Apnée Poumons Vides (FRC) — Cycle 3' },
+    { durationS: 60,  type: 'recovery', pattern: 'soupir',     phaseName: 'Phase 2 · Rate',    instruction: 'Récupération Calme' },
+    { durationS: 290, type: 'co2',      pattern: 'co2',        phaseName: 'Phase 3 · CO₂',     instruction: 'Ratio 4-8-16-4 : Musculation CO₂' },
+    { durationS: 16,  type: 'exhale',   pattern: 'exhale',     phaseName: 'Phase 4 · Zoom',    instruction: 'Dernière Expiration Ocean Breath' },
+    { durationS: 4,   type: 'hold',     pattern: 'hold-full',  phaseName: 'Phase 4 · Zoom',    instruction: 'Inspiration Éclair — Blocage' },
+    { durationS: 2,   type: 'go',       pattern: 'go',         phaseName: '',                  instruction: 'APNÉE — GO !' },
   ]},
   1200: { name: "L'IDÉAL", steps: [
-    { durationS: 420, type: 'breathe',  phaseName: 'Phase 1 · Profonde', instruction: 'Zen Absolu : Sommeil Éveillé' },
-    { durationS: 30,  type: 'hold',     phaseName: 'Phase 2 · Rate',     instruction: 'Apnée Poumons Vides (FRC) — Cycle 1' },
-    { durationS: 60,  type: 'recovery', phaseName: 'Phase 2 · Rate',     instruction: 'Récupération Calme' },
-    { durationS: 30,  type: 'hold',     phaseName: 'Phase 2 · Rate',     instruction: 'Apnée Poumons Vides (FRC) — Cycle 2' },
-    { durationS: 60,  type: 'recovery', phaseName: 'Phase 2 · Rate',     instruction: 'Récupération Calme' },
-    { durationS: 30,  type: 'hold',     phaseName: 'Phase 2 · Rate',     instruction: 'Apnée Poumons Vides (FRC) — Cycle 3' },
-    { durationS: 60,  type: 'recovery', phaseName: 'Phase 2 · Rate',     instruction: 'Récupération Calme' },
-    { durationS: 30,  type: 'hold',     phaseName: 'Phase 2 · Rate',     instruction: 'Apnée Poumons Vides (FRC) — Cycle 4' },
-    { durationS: 60,  type: 'recovery', phaseName: 'Phase 2 · Rate',     instruction: 'Récupération Calme' },
-    { durationS: 400, type: 'co2',      phaseName: 'Phase 3 · CO₂',      instruction: 'Ratio 4-8-16-4 : Intensif Ocean Breath' },
-    { durationS: 10,  type: 'exhale',   phaseName: 'Phase 4 · Zoom',     instruction: 'Videz tout l\'air (Expulsion contrôlée)' },
-    { durationS: 10,  type: 'inhale',   phaseName: 'Phase 4 · Zoom',     instruction: 'Remplissage par étages (Ventre · Côtes · Haut)' },
-    { durationS: 2,   type: 'go',       phaseName: '',                   instruction: 'APNÉE — GO !' },
+    { durationS: 420, type: 'breathe',  pattern: '6-6-12',     phaseName: 'Phase 1 · Profonde', instruction: 'Zen Absolu : Sommeil Éveillé' },
+    { durationS: 30,  type: 'hold',     pattern: 'hold-empty', phaseName: 'Phase 2 · Rate',     instruction: 'Apnée Poumons Vides (FRC) — Cycle 1' },
+    { durationS: 60,  type: 'recovery', pattern: 'soupir',     phaseName: 'Phase 2 · Rate',     instruction: 'Récupération Calme' },
+    { durationS: 30,  type: 'hold',     pattern: 'hold-empty', phaseName: 'Phase 2 · Rate',     instruction: 'Apnée Poumons Vides (FRC) — Cycle 2' },
+    { durationS: 60,  type: 'recovery', pattern: 'soupir',     phaseName: 'Phase 2 · Rate',     instruction: 'Récupération Calme' },
+    { durationS: 30,  type: 'hold',     pattern: 'hold-empty', phaseName: 'Phase 2 · Rate',     instruction: 'Apnée Poumons Vides (FRC) — Cycle 3' },
+    { durationS: 60,  type: 'recovery', pattern: 'soupir',     phaseName: 'Phase 2 · Rate',     instruction: 'Récupération Calme' },
+    { durationS: 30,  type: 'hold',     pattern: 'hold-empty', phaseName: 'Phase 2 · Rate',     instruction: 'Apnée Poumons Vides (FRC) — Cycle 4' },
+    { durationS: 60,  type: 'recovery', pattern: 'soupir',     phaseName: 'Phase 2 · Rate',     instruction: 'Récupération Calme' },
+    { durationS: 400, type: 'co2',      pattern: 'co2',        phaseName: 'Phase 3 · CO₂',      instruction: 'Ratio 4-8-16-4 : Intensif Ocean Breath' },
+    { durationS: 10,  type: 'exhale',   pattern: 'exhale',     phaseName: 'Phase 4 · Zoom',     instruction: 'Videz tout l\'air (Expulsion contrôlée)' },
+    { durationS: 10,  type: 'inhale',   pattern: 'inhale',     phaseName: 'Phase 4 · Zoom',     instruction: 'Remplissage par étages (Ventre · Côtes · Haut)' },
+    { durationS: 2,   type: 'go',       pattern: 'go',         phaseName: '',                   instruction: 'APNÉE — GO !' },
   ]},
 }
 
@@ -192,27 +207,42 @@ function internalToPublicPhase(t: InternalPhaseType): PhaseType {
   return t as PhaseType
 }
 
+/** Retourne la sous-phase BreathCircle en fonction du pattern explicite de l'étape. */
 function getWarmupSubPhase(
-  stepType: WarmupStepType,
+  pattern: WarmupBreathPattern,
   stepElapsedS: number,
   stepDurationS: number,
 ): WarmupSubPhase {
-  switch (stepType) {
-    case 'breathe':
-    case 'recovery': {
-      // Cycle 4 s inspir + 6 s expir
-      const INHALE = 4, EXHALE = 6, CYCLE = 10
+  switch (pattern) {
+
+    case 'soupir': {
+      // Soupir cyclique : 3 s inspir rapide + 7 s expir lent = 10 s
+      const INHALE = 3, EXHALE = 7, CYCLE = 10
       const pos = stepElapsedS % CYCLE
-      if (pos < INHALE) return { internalType: 'inhale',  progress: pos / INHALE,          subDurationS: INHALE }
-      return                { internalType: 'exhale',  progress: (pos - INHALE) / EXHALE,  subDurationS: EXHALE }
+      if (pos < INHALE) return { internalType: 'inhale', progress: pos / INHALE,           subDurationS: INHALE }
+      return               { internalType: 'exhale', progress: (pos - INHALE) / EXHALE,   subDurationS: EXHALE }
     }
+
+    case '6-6-12': {
+      // Cohérence cardiaque : 6 s inhale + 6 s hold-full + 12 s exhale = 24 s
+      const PHASES: [InternalPhaseType, number][] = [['inhale', 6], ['hold-full', 6], ['exhale', 12]]
+      const CYCLE = 24
+      const pos = stepElapsedS % CYCLE
+      let acc = 0
+      for (const [type, dur] of PHASES) {
+        if (pos < acc + dur) return { internalType: type, progress: (pos - acc) / dur, subDurationS: dur }
+        acc += dur
+      }
+      return { internalType: 'inhale', progress: 0, subDurationS: 6 }
+    }
+
     case 'co2': {
-      // Cycle 4-8-16-4 (Ocean Breath)
+      // Ocean Breath : 4-8-16-4 = 32 s
       const PHASES: [InternalPhaseType, number][] = [
         ['inhale', 4], ['hold-full', 8], ['exhale', 16], ['hold-empty', 4],
       ]
-      const TOTAL = 32
-      const pos = stepElapsedS % TOTAL
+      const CYCLE = 32
+      const pos = stepElapsedS % CYCLE
       let acc = 0
       for (const [type, dur] of PHASES) {
         if (pos < acc + dur) return { internalType: type, progress: (pos - acc) / dur, subDurationS: dur }
@@ -220,15 +250,22 @@ function getWarmupSubPhase(
       }
       return { internalType: 'inhale', progress: 0, subDurationS: 4 }
     }
-    case 'hold':
-      // Rétention poumons vides (FRC) — cercle statique réduit
+
+    case 'hold-full':
+      return { internalType: 'hold-full',  progress: 1,   subDurationS: stepDurationS }
+
+    case 'hold-empty':
       return { internalType: 'hold-empty', progress: 0.5, subDurationS: stepDurationS }
+
     case 'inhale':
       return { internalType: 'inhale', progress: Math.min(stepElapsedS / stepDurationS, 1), subDurationS: stepDurationS }
+
     case 'exhale':
       return { internalType: 'exhale', progress: Math.min(stepElapsedS / stepDurationS, 1), subDurationS: stepDurationS }
+
     case 'go':
       return { internalType: 'hold-full', progress: 1, subDurationS: 2 }
+
     default:
       return { internalType: 'inhale', progress: 0, subDurationS: 4 }
   }
@@ -810,7 +847,7 @@ export function FreeTimerPage() {
           }
 
           // ── BreathCircle animation ──────────────────────────────────────────
-          const subPhase    = getWarmupSubPhase(step.type, stepElapsedS, step.durationS)
+          const subPhase    = getWarmupSubPhase(step.pattern, stepElapsedS, step.durationS)
           const breathStore = useBreathStore.getState()
           const subKey      = `${stepIndex}-${subPhase.internalType}`
           if (subKey !== lastWarmupSubPhaseKeyRef.current) {

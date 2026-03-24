@@ -378,7 +378,7 @@ export function ExerciseEditor({ initialExercise, onSave, onCancel }: ExerciseEd
                         step={1}
                         value={r}
                         onChange={(e) => handleRatioChange(i, e.target.value)}
-                        className="w-full rounded-xl border border-accent/40 bg-bg-overlay py-2.5 text-center text-base font-bold text-accent outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-colors
+                        className="w-full rounded-xl border border-accent/40 !bg-transparent py-2.5 text-center text-base font-bold text-accent outline-none focus:border-accent transition-colors
                           [appearance:textfield]
                           [&::-webkit-inner-spin-button]:appearance-none
                           [&::-webkit-outer-spin-button]:appearance-none"

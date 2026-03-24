@@ -6,6 +6,7 @@ import { useDroneStore } from '../sounds/droneStore'
 import { BreathVoiceGuide, estimatePreparationDuration } from '../voice/BreathVoiceGuide'
 import { useVoiceGuideStore } from '../voice/voiceGuideStore'
 import { eventBus } from '@core/events'
+import { useNoSleep } from '@utils/useNoSleep'
 import type { Exercise } from '@core/types'
 import type { ScheduledPhase } from '../clock/types'
 
@@ -19,6 +20,7 @@ export function useBreathSession() {
   const exerciseRef   = useRef<Exercise | null>(null)
   const sessionIdRef  = useRef<string | null>(null)
   const wakeLockRef   = useRef<WakeLockSentinel | null>(null)
+  const { enable: noSleepEnable, disable: noSleepDisable } = useNoSleep()
 
   const store = useBreathStore()
 
@@ -178,7 +180,8 @@ export function useBreathSession() {
     store.startSession(sessionId, exercise.repetitions)
 
     await clock.start(exercise, prepDuration) // durée préparatoire dynamique
-    void requestWakeLock()      // garde l'écran allumé pendant la session
+    void requestWakeLock()      // Wake Lock (Android / desktop)
+    noSleepEnable()             // NoSleep vidéo silencieuse (iOS Chrome)
 
     eventBus.emit('SESSION_STARTED', {
       sessionId,
@@ -191,7 +194,8 @@ export function useBreathSession() {
   const pause = useCallback(() => {
     voiceGuideRef.current?.cancel()
     clockRef.current?.pause()
-    releaseWakeLock() // libère le Wake Lock quand l'utilisateur met en pause
+    releaseWakeLock()
+    noSleepDisable()
     store.pauseSession()
     const sessionId = sessionIdRef.current
     if (sessionId) {
@@ -201,7 +205,8 @@ export function useBreathSession() {
 
   const resume = useCallback(() => {
     clockRef.current?.resume()
-    void requestWakeLock() // ré-acquiert le Wake Lock à la reprise
+    void requestWakeLock()
+    noSleepEnable()
     store.resumeSession()
     const sessionId = sessionIdRef.current
     if (sessionId) {
@@ -216,7 +221,8 @@ export function useBreathSession() {
     voiceGuideRef.current = null
     clockRef.current?.stop()
     clockRef.current = null
-    releaseWakeLock() // libère le Wake Lock à la fin de la session
+    releaseWakeLock()
+    noSleepDisable()
 
     if (store.isRunning && sessionId && exercise) {
       eventBus.emit('SESSION_COMPLETED', {
@@ -242,8 +248,9 @@ export function useBreathSession() {
       clockRef.current?.stop()
       clockRef.current = null
       releaseWakeLock()
+      noSleepDisable()
     }
-  }, [releaseWakeLock])
+  }, [releaseWakeLock, noSleepDisable])
 
   return { start, pause, resume, stop }
 }

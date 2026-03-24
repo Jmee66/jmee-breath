@@ -21,6 +21,7 @@ import { Play, Square, RotateCcw, Wind, CheckCircle2, SkipForward, Pencil, Check
 import { PageContainer } from '@modules/theme'
 import { useVoiceGuideStore, useSoundStore, useRiverStore } from '@modules/breath-engine'
 import { saveFreeTimerSession, getBestFreeTimerSession } from '../services/freeTimerWriter'
+import { useNoSleep } from '@utils/useNoSleep'
 import type { FreeTimerSession } from '@core/types'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -576,7 +577,8 @@ export function FreeTimerPage() {
     }
   }, [])
 
-  // ── Wake Lock — empêche l'écran de se verrouiller pendant une session ───────
+  // ── Wake Lock + NoSleep — empêche le verrouillage écran ─────────────────────
+  const { enable: noSleepEnable, disable: noSleepDisable } = useNoSleep()
   const wakeLockRef = useRef<WakeLockSentinel | null>(null)
 
   const requestWakeLock = useCallback(async () => {
@@ -667,8 +669,9 @@ export function FreeTimerPage() {
     tickFnRef.current = tick
     rafRef.current = requestAnimationFrame(tick)
 
-    // Wake Lock — empêche le verrouillage écran
+    // Wake Lock (Android/desktop) + NoSleep vidéo silencieuse (iOS)
     void requestWakeLock()
+    noSleepEnable()
 
     // Persistance sessionStorage — survie au kill iOS
     try {
@@ -768,9 +771,10 @@ export function FreeTimerPage() {
     tickFnRef.current = tick
     rafRef.current = requestAnimationFrame(tick)
 
-    // Wake Lock — empêche le verrouillage écran
+    // Wake Lock (Android/desktop) + NoSleep vidéo silencieuse (iOS)
     void requestWakeLock()
-  }, [startTimer, requestWakeLock])
+    noSleepEnable()
+  }, [startTimer, requestWakeLock, noSleepEnable])
 
   const skipWarmupStep = useCallback(() => {
     const protocol = protocolRef.current
@@ -794,6 +798,7 @@ export function FreeTimerPage() {
     }
     tickFnRef.current = null
     releaseWakeLock()
+    noSleepDisable()
     try { sessionStorage.removeItem('apnea_running') } catch { /* ignore */ }
     const finalMs   = getElapsed()
     const finalMode = modeRef.current
@@ -820,7 +825,7 @@ export function FreeTimerPage() {
     } finally {
       if (mountedRef.current) setIsSaving(false)
     }
-  }, [getElapsed, releaseWakeLock])
+  }, [getElapsed, releaseWakeLock, noSleepDisable])
 
   const recordLap = useCallback(() => {
     const t = getElapsed()
@@ -840,6 +845,7 @@ export function FreeTimerPage() {
     }
     tickFnRef.current = null
     releaseWakeLock()
+    noSleepDisable()
     try { sessionStorage.removeItem('apnea_running') } catch { /* ignore */ }
     cancelWarmupSound()
     if (warmupAudioRef.current) { warmupAudioRef.current.close().catch(() => {}); warmupAudioRef.current = null }
@@ -850,7 +856,7 @@ export function FreeTimerPage() {
     setSavedSession(null)
     lapsRef.current = []
     setPhase('idle')
-  }, [releaseWakeLock])
+  }, [releaseWakeLock, noSleepDisable])
 
   // ── Render ──────────────────────────────────────────────────────────────────
 

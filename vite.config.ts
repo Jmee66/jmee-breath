@@ -11,6 +11,7 @@ export default defineConfig({
       '@modules': path.resolve(__dirname, 'src/modules'),
       '@pages': path.resolve(__dirname, 'src/pages'),
       '@styles': path.resolve(__dirname, 'src/styles'),
+      '@utils': path.resolve(__dirname, 'src/utils'),
     },
   },
   plugins: [
@@ -39,7 +40,7 @@ export default defineConfig({
       manifest: {
         name: 'Apnea Trainer',
         short_name: 'Apnea',
-        description: 'Application de coaching apnée v0.2.6 — guidage, journal, coach IA',
+        description: 'Application de coaching apnée v0.2.7 — guidage, journal, coach IA',
         theme_color: '#0a0f1e',
         background_color: '#0a0f1e',
         display: 'standalone',

@@ -1,5 +1,6 @@
 import { db } from '@core/db'
 import { syncManager } from '@core/sync'
+import { useAuthStore } from '@modules/auth/store/authStore'
 import type { Exercise } from '@core/types'
 import { PRESET_EXERCISES } from '../presets'
 
@@ -7,7 +8,6 @@ import { PRESET_EXERCISES } from '../presets'
  * Initialise la DB avec les presets.
  * - Upsert les presets actuels (ids stables)
  * - Supprime les anciens presets dont l'id n'est plus dans la liste
- *   (ex : variantes box 4x4/5x5/6x6 supprimées au profit d'un seul preset)
  */
 export async function seedPresets(): Promise<void> {
   const validIds = new Set(PRESET_EXERCISES.map((e) => e.id))
@@ -25,16 +25,39 @@ export async function getExerciseById(id: string): Promise<Exercise | undefined>
   return db.exercises.get(id)
 }
 
+/** Convertit un Exercise (camelCase) en payload snake_case pour Supabase. */
+function toSupabasePayload(exercise: Exercise, userId: string): Record<string, unknown> {
+  return {
+    id:                         exercise.id,
+    user_id:                    userId,
+    name:                       exercise.name,
+    description:                exercise.description,
+    category:                   exercise.category,
+    difficulty:                 exercise.difficulty,
+    tags:                       exercise.tags,
+    phases:                     exercise.phases,
+    repetitions:                exercise.repetitions,
+    rest_between_reps_seconds:  exercise.restBetweenRepsSeconds,
+    is_preset:                  false,
+    custom_presets:             exercise.customPresets ?? [],
+    created_at:                 exercise.createdAt,
+    updated_at:                 exercise.updatedAt,
+  }
+}
+
 export async function saveExercise(exercise: Exercise): Promise<void> {
   await db.exercises.put(exercise)
   if (!exercise.isPreset) {
-    await syncManager.enqueue({
-      table: 'exercises',
-      operation: 'upsert',
-      recordId: exercise.id,
-      payload: exercise,
-      createdAt: new Date().toISOString(),
-    })
+    const userId = useAuthStore.getState().user?.id
+    if (userId) {
+      await syncManager.enqueue({
+        table:     'exercises',
+        operation: 'upsert',
+        recordId:  exercise.id,
+        payload:   toSupabasePayload(exercise, userId),
+        createdAt: new Date().toISOString(),
+      })
+    }
   }
 }
 
@@ -43,11 +66,14 @@ export async function deleteExercise(id: string): Promise<void> {
   if (!exercise || exercise.isPreset) return
 
   await db.exercises.delete(id)
-  await syncManager.enqueue({
-    table: 'exercises',
-    operation: 'delete',
-    recordId: id,
-    payload: null,
-    createdAt: new Date().toISOString(),
-  })
+  const userId = useAuthStore.getState().user?.id
+  if (userId) {
+    await syncManager.enqueue({
+      table:     'exercises',
+      operation: 'delete',
+      recordId:  id,
+      payload:   null,
+      createdAt: new Date().toISOString(),
+    })
+  }
 }

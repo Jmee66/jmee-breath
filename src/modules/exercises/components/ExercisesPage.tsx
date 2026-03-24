@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Plus, X } from 'lucide-react'
 import { PageContainer } from '@modules/theme'
 import { useExerciseStore } from '../store/exerciseStore'
@@ -7,6 +7,7 @@ import { getAllExercises, saveExercise, deleteExercise, seedPresets } from '../s
 import type { Exercise } from '@core/types'
 import { ExerciseList } from './ExerciseList'
 import { ExerciseEditor } from './ExerciseEditor'
+import { eventBus } from '@core/events'
 
 // ── Component ────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,11 @@ export function ExercisesPage() {
     [exercises, hiddenPresetIds],
   )
 
+  const reload = useCallback(async () => {
+    const all = await getAllExercises()
+    setExercises(all)
+  }, [setExercises])
+
   // Load exercises from IndexedDB on mount
   useEffect(() => {
     let cancelled = false
@@ -39,6 +45,13 @@ export function ExercisesPage() {
     void load()
     return () => { cancelled = true }
   }, [setExercises, setLoading])
+
+  // Rafraîchir quand le sync ramène des exercices depuis un autre appareil
+  useEffect(() => {
+    return eventBus.on('SYNC_COMPLETED', ({ table }) => {
+      if (table === 'exercises') void reload()
+    })
+  }, [reload])
 
   async function handleSave(data: Omit<Exercise, 'id' | 'createdAt' | 'updatedAt'>) {
     const now = new Date().toISOString()

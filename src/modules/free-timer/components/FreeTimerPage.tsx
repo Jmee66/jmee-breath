@@ -288,6 +288,13 @@ function playBeep(ctx: AudioContext, freq: number, durationS: number, vol = 0.25
   } catch { /* AudioContext suspendu ou fermé */ }
 }
 
+/** Estime la durée de parole en secondes selon le texte et le débit. */
+function estimateSpeechDurationS(text: string, rate: number): number {
+  const words = text.split(/\s+/).filter(Boolean).length
+  const wpm   = Math.max(60, rate * 150)          // ~150 mots/min à débit=1
+  return Math.max(2, (words / wpm) * 60 + 0.8)   // +0.8 s de silence final
+}
+
 function speakWarmup(text: string) {
   if (!('speechSynthesis' in window)) return
   try {
@@ -619,6 +626,8 @@ export function FreeTimerPage() {
   const lastStepIdxRef          = useRef(-1)
   const lastCountdownRef        = useRef(-1)
   const lastWarmupSubPhaseKeyRef = useRef<string>('')
+  const stepPrepEndAtRef         = useRef<number>(0)   // timestamp ms où la prépare se termine
+  const stepPrepDurationSRef     = useRef<number>(0)   // durée de la prépa en secondes
 
   // Sync modeRef / phaseRef with state
   useEffect(() => { modeRef.current  = mode  }, [mode])
@@ -744,6 +753,8 @@ export function FreeTimerPage() {
     lastStepIdxRef.current          = -1
     lastCountdownRef.current        = -1
     lastWarmupSubPhaseKeyRef.current = ''
+    stepPrepEndAtRef.current         = 0
+    stepPrepDurationSRef.current     = 0
     useBreathStore.getState().endSession()
     startWallRef.current = Date.now()
     startedAtRef.current = new Date().toISOString()
@@ -803,6 +814,8 @@ export function FreeTimerPage() {
     lastStepIdxRef.current          = -1
     lastCountdownRef.current        = -1
     lastWarmupSubPhaseKeyRef.current = ''
+    stepPrepEndAtRef.current         = 0
+    stepPrepDurationSRef.current     = 0
     useBreathStore.getState().endSession()
 
     protocolRef.current      = protocol
@@ -827,8 +840,18 @@ export function FreeTimerPage() {
 
           // Nouvelle étape détectée
           if (stepIndex !== lastStepIdxRef.current) {
-            lastStepIdxRef.current   = stepIndex
-            lastCountdownRef.current = -1
+            lastStepIdxRef.current          = stepIndex
+            lastCountdownRef.current        = -1
+            lastWarmupSubPhaseKeyRef.current = ''   // force re-entrée dans le bloc animation
+
+            // Durée de préparation = durée estimée de la voix (0 si voix off ou étape "go")
+            const voiceStore = useVoiceGuideStore.getState()
+            const prepS      = (step.type === 'go' || !voiceStore.voiceEnabled)
+              ? 0
+              : estimateSpeechDurationS(step.instruction, voiceStore.voiceRate)
+            stepPrepDurationSRef.current = prepS
+            stepPrepEndAtRef.current     = Date.now() + prepS * 1000
+
             if (ctx) {
               if (step.type === 'go') {
                 playBeep(ctx, 880, 0.6, 0.3)
@@ -847,18 +870,34 @@ export function FreeTimerPage() {
           }
 
           // ── BreathCircle animation ──────────────────────────────────────────
-          const subPhase    = getWarmupSubPhase(step.pattern, stepElapsedS, step.durationS)
           const breathStore = useBreathStore.getState()
-          const subKey      = `${stepIndex}-${subPhase.internalType}`
-          if (subKey !== lastWarmupSubPhaseKeyRef.current) {
-            lastWarmupSubPhaseKeyRef.current = subKey
-            breathStore.setPhaseComplete(
-              internalToPublicPhase(subPhase.internalType),
-              subPhase.internalType,
-              subPhase.subDurationS,
-            )
+          const now         = Date.now()
+          const inPrep      = step.type !== 'go' && now < stepPrepEndAtRef.current
+
+          if (inPrep) {
+            // Cercle gris statique pendant l'annonce vocale
+            const prepKey = `${stepIndex}-preparation`
+            if (prepKey !== lastWarmupSubPhaseKeyRef.current) {
+              lastWarmupSubPhaseKeyRef.current = prepKey
+              breathStore.setPhaseComplete('inhale', 'preparation', stepPrepDurationSRef.current)
+            }
+            breathStore.setProgress(0.5)
+          } else {
+            // Pattern réel — soustrait la durée de prépa pour que le cycle parte de 0
+            const patternElapsedS  = Math.max(0, stepElapsedS - stepPrepDurationSRef.current)
+            const patternDurationS = Math.max(1, step.durationS - stepPrepDurationSRef.current)
+            const subPhase         = getWarmupSubPhase(step.pattern, patternElapsedS, patternDurationS)
+            const subKey           = `${stepIndex}-${subPhase.internalType}`
+            if (subKey !== lastWarmupSubPhaseKeyRef.current) {
+              lastWarmupSubPhaseKeyRef.current = subKey
+              breathStore.setPhaseComplete(
+                internalToPublicPhase(subPhase.internalType),
+                subPhase.internalType,
+                subPhase.subDurationS,
+              )
+            }
+            breathStore.setProgress(subPhase.progress)
           }
-          breathStore.setProgress(subPhase.progress)
 
           setWarmupDisplay({
             protocolName:  protocol.name,
@@ -961,6 +1000,8 @@ export function FreeTimerPage() {
     lastStepIdxRef.current          = -1
     lastCountdownRef.current        = -1
     lastWarmupSubPhaseKeyRef.current = ''
+    stepPrepEndAtRef.current         = 0
+    stepPrepDurationSRef.current     = 0
     useBreathStore.getState().endSession()
     setDisplayMs(0)
     setLapsMs([])

@@ -1,8 +1,27 @@
 import { db } from '@core/db'
 import { eventBus } from '@core/events'
 import { syncManager } from '@core/sync'
+import { useAuthStore } from '@modules/auth/store/authStore'
 import type { Session } from '@core/types'
 import { useJournalStore } from '../store/journalStore'
+
+/** Convertit une Session (camelCase) en payload snake_case pour Supabase. */
+function sessionToSupabase(session: Session, userId: string): Record<string, unknown> {
+  return {
+    id:                session.id,
+    user_id:           userId,
+    exercise_id:       session.exerciseId,
+    exercise_snapshot: session.exerciseSnapshot,
+    started_at:        session.startedAt,
+    completed_at:      session.completedAt,
+    duration_seconds:  session.durationSeconds,
+    reps_completed:    session.repsCompleted,
+    total_reps:        session.totalReps,
+    phases_log:        session.phasesLog,
+    notes:             session.notes,
+    abandoned:         session.abandoned,
+  }
+}
 
 /** Écoute SESSION_COMPLETED et persiste automatiquement */
 export function initSessionWriter(): () => void {
@@ -29,13 +48,16 @@ export function initSessionWriter(): () => void {
       const id = await db.sessions.put(session)
       useJournalStore.getState().addSession(session)
 
-      await syncManager.enqueue({
-        table: 'sessions',
-        operation: 'upsert',
-        recordId: session.id,
-        payload: session,
-        createdAt: new Date().toISOString(),
-      })
+      const userId = useAuthStore.getState().user?.id
+      if (userId) {
+        await syncManager.enqueue({
+          table:     'sessions',
+          operation: 'upsert',
+          recordId:  session.id,
+          payload:   sessionToSupabase(session, userId),
+          createdAt: new Date().toISOString(),
+        })
+      }
 
       eventBus.emit('JOURNAL_UPDATED', {
         sessionId: session.id,

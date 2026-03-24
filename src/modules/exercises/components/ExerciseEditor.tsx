@@ -462,9 +462,9 @@ export function ExerciseEditor({ initialExercise, onSave, onCancel }: ExerciseEd
         return (
           <div className="flex items-center justify-between rounded-xl bg-bg-elevated px-4 py-3 border border-border">
             <span className="text-xs text-white/85">Durée totale estimée</span>
-            <div className="flex items-baseline gap-2">
-              <span className="text-xs text-white/85">{repetitions} × {perRepFmt}</span>
+            <div className="flex flex-col items-end gap-0.5">
               <span className="text-sm font-semibold text-text-primary">{totalFmt}</span>
+              <span className="text-xs text-white/40">{repetitions} × {perRepFmt}</span>
             </div>
           </div>
         )

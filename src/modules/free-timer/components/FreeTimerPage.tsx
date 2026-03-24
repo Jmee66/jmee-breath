@@ -576,22 +576,64 @@ export function FreeTimerPage() {
     }
   }, [])
 
+  // ── Wake Lock — empêche l'écran de se verrouiller pendant une session ───────
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null)
+
+  const requestWakeLock = useCallback(async () => {
+    if (!('wakeLock' in navigator)) return
+    try {
+      wakeLockRef.current = await (
+        navigator as Navigator & { wakeLock: { request(t: string): Promise<WakeLockSentinel> } }
+      ).wakeLock.request('screen')
+    } catch { /* batterie faible, permission refusée, non supporté */ }
+  }, [])
+
+  const releaseWakeLock = useCallback(() => {
+    wakeLockRef.current?.release().catch(() => {})
+    wakeLockRef.current = null
+  }, [])
+
   // ── Relance RAF après déverrouillage écran (iOS suspend RAF) ────────────────
+  // Bug : iOS tue le RAF mais NE remet PAS rafRef à null (rafId "fantôme")
+  //       → la condition `=== null` échouait → le RAF ne repartait jamais.
+  // Fix : on page hidden → annule proprement le RAF + reset à null.
+  //       on page visible → annule l'id fantôme éventuel + relance toujours.
   useEffect(() => {
     const onVisibility = () => {
-      if (document.visibilityState !== 'visible') return
-      // Résume AudioContext (iOS le suspend)
+      if (document.visibilityState === 'hidden') {
+        // Annule proprement le RAF (stoppe la boucle, reset id)
+        if (rafRef.current !== null) {
+          cancelAnimationFrame(rafRef.current)
+          rafRef.current = null
+        }
+        return
+      }
+
+      // — Page redevient visible —
+
+      // Résume AudioContext warmup (iOS le suspend)
       if (warmupAudioRef.current?.state === 'suspended') {
         void warmupAudioRef.current.resume()
       }
-      // Redémarre le RAF s'il a été tué par iOS
-      if (rafRef.current === null && tickFnRef.current) {
+
+      // Ré-acquiert le Wake Lock (OS le libère automatiquement au verrouillage)
+      const activePhase = phaseRef.current
+      if (activePhase === 'running' || activePhase === 'warmup') {
+        void requestWakeLock()
+      }
+
+      // Relance le RAF : annule l'id fantôme éventuel + toujours restart
+      if ((activePhase === 'running' || activePhase === 'warmup') && tickFnRef.current) {
+        if (rafRef.current !== null) {
+          cancelAnimationFrame(rafRef.current)
+          rafRef.current = null
+        }
         rafRef.current = requestAnimationFrame(tickFnRef.current)
       }
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => document.removeEventListener('visibilitychange', onVisibility)
-  }, [])
+  }, [requestWakeLock])
 
   const getElapsed = useCallback((): number => {
     return Date.now() - startWallRef.current
@@ -625,6 +667,9 @@ export function FreeTimerPage() {
     tickFnRef.current = tick
     rafRef.current = requestAnimationFrame(tick)
 
+    // Wake Lock — empêche le verrouillage écran
+    void requestWakeLock()
+
     // Persistance sessionStorage — survie au kill iOS
     try {
       sessionStorage.setItem('apnea_running', JSON.stringify({
@@ -633,7 +678,7 @@ export function FreeTimerPage() {
         mode:        modeRef.current,
       }))
     } catch { /* ignore */ }
-  }, [])
+  }, [requestWakeLock])
 
   const startWarmup = useCallback((durationS: number) => {
     const protocol = WARMUP_PROTOCOLS[durationS]
@@ -722,7 +767,10 @@ export function FreeTimerPage() {
     }
     tickFnRef.current = tick
     rafRef.current = requestAnimationFrame(tick)
-  }, [startTimer])
+
+    // Wake Lock — empêche le verrouillage écran
+    void requestWakeLock()
+  }, [startTimer, requestWakeLock])
 
   const skipWarmupStep = useCallback(() => {
     const protocol = protocolRef.current
@@ -745,6 +793,7 @@ export function FreeTimerPage() {
       rafRef.current = null
     }
     tickFnRef.current = null
+    releaseWakeLock()
     try { sessionStorage.removeItem('apnea_running') } catch { /* ignore */ }
     const finalMs   = getElapsed()
     const finalMode = modeRef.current
@@ -771,7 +820,7 @@ export function FreeTimerPage() {
     } finally {
       if (mountedRef.current) setIsSaving(false)
     }
-  }, [getElapsed])
+  }, [getElapsed, releaseWakeLock])
 
   const recordLap = useCallback(() => {
     const t = getElapsed()
@@ -790,6 +839,7 @@ export function FreeTimerPage() {
       rafRef.current = null
     }
     tickFnRef.current = null
+    releaseWakeLock()
     try { sessionStorage.removeItem('apnea_running') } catch { /* ignore */ }
     cancelWarmupSound()
     if (warmupAudioRef.current) { warmupAudioRef.current.close().catch(() => {}); warmupAudioRef.current = null }
@@ -800,7 +850,7 @@ export function FreeTimerPage() {
     setSavedSession(null)
     lapsRef.current = []
     setPhase('idle')
-  }, [])
+  }, [releaseWakeLock])
 
   // ── Render ──────────────────────────────────────────────────────────────────
 

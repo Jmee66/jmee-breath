@@ -1,8 +1,11 @@
 import { useState } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { ChevronDown, LogIn, LogOut, User } from 'lucide-react'
 import { PageContainer } from '@modules/theme'
 import { useSoundStore, useVoiceGuideStore, useRiverStore } from '@modules/breath-engine'
 import { Volume2, VolumeX } from 'lucide-react'
+import { useAuthStore } from '@modules/auth/store/authStore'
+import { signOut } from '@modules/auth/services/authService'
 import { version } from '../../package.json'
 
 // ── Helpers UI ────────────────────────────────────────────────────────────────
@@ -127,6 +130,9 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SettingsPageRoute() {
+  const navigate = useNavigate()
+  const user     = useAuthStore((s) => s.user)
+
   // Sections ouvertes/fermées
   const [openPhase, setOpenPhase]   = useState(false)
   const [openRiver, setOpenRiver]   = useState(false)
@@ -158,6 +164,46 @@ export default function SettingsPageRoute() {
 
   return (
     <PageContainer title="Réglages">
+
+      {/* ── Compte ──────────────────────────────────────────────────────────── */}
+      <section className="mb-4">
+        <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-text-muted">
+          Compte
+        </h2>
+        {user ? (
+          <div className="card divide-y divide-border overflow-hidden p-0">
+            <div className="flex items-center gap-3 px-4 py-3">
+              <User size={15} className="text-accent shrink-0" />
+              <p className="text-sm text-text-primary truncate flex-1">{user.email}</p>
+              <span className="text-[10px] text-status-success font-medium">Sync actif</span>
+            </div>
+            <button
+              onClick={() => void signOut()}
+              className="flex w-full items-center gap-3 px-4 py-3 text-sm text-status-error hover:bg-bg-elevated transition-colors"
+            >
+              <LogOut size={15} />
+              Se déconnecter
+            </button>
+          </div>
+        ) : (
+          <div className="card divide-y divide-border overflow-hidden p-0">
+            <button
+              onClick={() => navigate('/login')}
+              className="flex w-full items-center gap-3 px-4 py-3 text-sm font-medium text-accent hover:bg-bg-elevated transition-colors"
+            >
+              <LogIn size={15} />
+              Se connecter
+            </button>
+            <button
+              onClick={() => navigate('/signup')}
+              className="flex w-full items-center gap-3 px-4 py-3 text-sm text-text-secondary hover:bg-bg-elevated transition-colors"
+            >
+              <User size={15} />
+              Créer un compte
+            </button>
+          </div>
+        )}
+      </section>
 
       <section>
         <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-text-muted">

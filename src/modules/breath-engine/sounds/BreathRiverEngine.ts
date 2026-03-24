@@ -82,6 +82,16 @@ export class BreathRiverEngine {
     this.source.loop    = true
     this.source.connect(this.masterGain)
 
+    // Détecte un arrêt inopiné (interruption iOS — notification, appel…)
+    // loop=true ne protège pas contre les interruptions AudioContext sur iOS.
+    // Si onended se déclenche alors que running===true, on marque la source
+    // comme morte pour que ensurePlaying() la relance.
+    this.source.onended = () => {
+      if (this.running) {
+        this.source = null   // morte → ensurePlaying() pourra redémarrer
+      }
+    }
+
     // Fade in 1.5 s
     const now = this.audioCtx.currentTime
     this.masterGain.gain.cancelScheduledValues(now)

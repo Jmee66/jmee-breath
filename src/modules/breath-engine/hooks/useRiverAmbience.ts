@@ -15,7 +15,7 @@
  * la durée de vie de l'app, partagé entre les instances de BreathRiverEngine).
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { useRiverStore } from '../sounds/riverStore'
 import { BreathRiverEngine } from '../sounds/BreathRiverEngine'
 import { BreathAnimalEngine } from '../sounds/BreathAnimalEngine'
@@ -34,11 +34,31 @@ export function useRiverAmbience(): void {
   const animalEngineRef = useRef<BreathAnimalEngine | null>(null)
   const audioCtxRef     = useRef<AudioContext | null>(null)
   const enabledRef      = useRef(false)   // Lecture dans le handler sans dépendance
+  const watchdogRef     = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const riverEnabled = useRiverStore((s) => s.riverEnabled)
   const riverVolume  = useRiverStore((s) => s.riverVolume)
 
   enabledRef.current = riverEnabled
+
+  // ── Helper : relance rivière + oiseaux si morts ───────────────────────
+  const tryRecover = useCallback(() => {
+    const ctx = audioCtxRef.current
+    if (!ctx || ctx.state === 'closed' || !enabledRef.current) return
+
+    const doRecover = () => {
+      void engineRef.current?.ensurePlaying(RIVER_URL)
+      if (animalEngineRef.current && !animalEngineRef.current.isRunning) {
+        animalEngineRef.current.start()
+      }
+    }
+
+    if (ctx.state !== 'running') {
+      void ctx.resume().then(doRecover).catch(() => {})
+    } else {
+      doRecover()
+    }
+  }, [])
 
   // ── Volume live ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -78,10 +98,37 @@ export function useRiverAmbience(): void {
       } else {
         doStart()
       }
+
+      // ── onstatechange : reprend si AudioContext interrompu (notif, appel iOS) ──
+      ctx.onstatechange = () => {
+        if (ctx.state === 'running' && enabledRef.current) {
+          void engineRef.current?.ensurePlaying(RIVER_URL)
+          if (animalEngineRef.current && !animalEngineRef.current.isRunning) {
+            animalEngineRef.current.start()
+          }
+        }
+      }
+
+      // ── Watchdog 4 s : détecte une source morte sans événement (iOS edge-case) ──
+      if (watchdogRef.current) clearInterval(watchdogRef.current)
+      watchdogRef.current = setInterval(() => {
+        if (!enabledRef.current) return
+        const c = audioCtxRef.current
+        if (!c || c.state !== 'running') return
+        // Source morte alors qu'elle devrait jouer → relance silencieuse
+        if (engineRef.current && !engineRef.current.isActive) {
+          void engineRef.current.ensurePlaying(RIVER_URL)
+        }
+        if (animalEngineRef.current && !animalEngineRef.current.isRunning) {
+          animalEngineRef.current.start()
+        }
+      }, 4000)
+
     } else {
       // Fade out — AudioContext conservé pour ré-enable immédiat
       engineRef.current?.stop()
       animalEngineRef.current?.stop()
+      if (watchdogRef.current) { clearInterval(watchdogRef.current); watchdogRef.current = null }
     }
     // riverVolume exclu intentionnellement — géré par l'effet volume séparé
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -90,38 +137,24 @@ export function useRiverAmbience(): void {
   // ── Reprise après verrouillage écran / changement d'onglet ───────────
   useEffect(() => {
     const onVisibilityChange = () => {
-      if (document.visibilityState !== 'visible' || !enabledRef.current) return
-
-      const ctx = audioCtxRef.current
-      if (!ctx || ctx.state === 'closed') return
-
-      const doResume = () => {
-        // Relance la rivière si la source a été tuée par iOS (interrupted)
-        void engineRef.current?.ensurePlaying(RIVER_URL)
-        // Relance les oiseaux si leur boucle s'est arrêtée
-        if (animalEngineRef.current && !animalEngineRef.current.isRunning) {
-          animalEngineRef.current.start()
-        }
-      }
-
-      if (ctx.state !== 'running') {
-        // 'suspended' sur desktop, 'interrupted' sur iOS
-        void ctx.resume().then(doResume)
-      } else {
-        doResume()
-      }
+      if (document.visibilityState !== 'visible') return
+      tryRecover()
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => document.removeEventListener('visibilitychange', onVisibilityChange)
-  }, [])
+  }, [tryRecover])
 
   // ── Cleanup au démontage ──────────────────────────────────────────────
   useEffect(() => {
     return () => {
+      if (watchdogRef.current) clearInterval(watchdogRef.current)
       engineRef.current?.stop()
       animalEngineRef.current?.stop()
       const ctx = audioCtxRef.current
-      if (ctx) setTimeout(() => void ctx.close(), 1600)
+      if (ctx) {
+        ctx.onstatechange = null
+        setTimeout(() => void ctx.close(), 1600)
+      }
       engineRef.current       = null
       animalEngineRef.current = null
       audioCtxRef.current     = null

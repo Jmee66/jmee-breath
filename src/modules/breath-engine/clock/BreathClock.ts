@@ -173,14 +173,26 @@ export class BreathClock {
       this.rafId = null
     }
 
+    const startTick = () => { if (this.rafId === null) this.tick() }
+
     if (this.audioCtx.state !== 'running') {
       // 'suspended' sur Android/desktop, 'interrupted' sur iOS
-      void this.audioCtx.resume().then(() => {
-        if (this.rafId === null) this.tick()
-      })
+      void this.audioCtx.resume()
+        .then(startTick)
+        .catch(() => {
+          // iOS Chrome : resume() peut être rejeté si pas de geste utilisateur direct.
+          // Fallback : au premier tap/click, on relance l'AudioContext + le tick.
+          const onUserGesture = () => {
+            void this.audioCtx.resume().then(startTick).catch(() => {})
+            document.removeEventListener('touchstart', onUserGesture)
+            document.removeEventListener('click',      onUserGesture)
+          }
+          document.addEventListener('touchstart', onUserGesture, { once: true })
+          document.addEventListener('click',      onUserGesture, { once: true })
+        })
     } else {
       // AudioContext déjà running (rAF s'était arrêté seul)
-      this.tick()
+      startTick()
     }
   }
 

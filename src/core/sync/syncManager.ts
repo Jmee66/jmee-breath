@@ -91,11 +91,13 @@ class SyncManager {
       await db.syncQueue.delete(entry.id)
 
       // Marquer l'enregistrement comme synchronisé
+      const now = new Date().toISOString()
       if (entry.table === 'sessions') {
-        await db.sessions.update(entry.recordId, {
-          syncedAt: new Date().toISOString(),
-        })
+        await db.sessions.update(entry.recordId, { syncedAt: now })
+      } else if (entry.table === 'free_timer_sessions') {
+        await db.freeTimerSessions.update(entry.recordId, { syncedAt: now })
       }
+      // user_preferences : pas de record local à mettre à jour (géré par les stores)
 
       eventBus.emit('SYNC_COMPLETED', {
         table: entry.table,
@@ -175,6 +177,23 @@ class SyncManager {
         pulled: remoteExercises.length,
       })
     }
+
+    // Pull free timer sessions
+    const lastFts = await db.freeTimerSessions.orderBy('startedAt').last()
+    const ftsQuery = lastFts
+      ? supabase.from('free_timer_sessions').select('*').eq('user_id', this.userId).gt('started_at', lastFts.startedAt)
+      : supabase.from('free_timer_sessions').select('*').eq('user_id', this.userId)
+    const { data: remoteFts } = await ftsQuery
+    if (remoteFts?.length) {
+      for (const s of remoteFts) {
+        await db.freeTimerSessions.put(mapRemoteFreeTimerSession(s))
+      }
+      eventBus.emit('SYNC_COMPLETED', {
+        table: 'free_timer_sessions',
+        pushed: 0,
+        pulled: remoteFts.length,
+      })
+    }
   }
 }
 
@@ -203,6 +222,20 @@ function mapRemoteExercise(r: any) {
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     restBetweenRepsSeconds: r.rest_between_reps_seconds,
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapRemoteFreeTimerSession(r: any) {
+  return {
+    id:              r.id,
+    startedAt:       r.started_at,
+    completedAt:     r.completed_at  ?? null,
+    durationSeconds: r.duration_seconds ?? 0,
+    laps:            r.laps           ?? [],
+    notes:           r.notes          ?? '',
+    mode:            r.mode           ?? 'apnea',
+    syncedAt:        new Date().toISOString(),
   }
 }
 

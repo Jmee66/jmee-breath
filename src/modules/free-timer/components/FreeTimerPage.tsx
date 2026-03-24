@@ -19,10 +19,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Play, Square, RotateCcw, Wind, CheckCircle2, SkipForward, Pencil, Check, Flag, Volume2, VolumeX } from 'lucide-react'
 import { PageContainer } from '@modules/theme'
-import { useVoiceGuideStore, useSoundStore, useRiverStore } from '@modules/breath-engine'
+import { useVoiceGuideStore, useSoundStore, useRiverStore, BreathCircle, useBreathStore } from '@modules/breath-engine'
+import type { InternalPhaseType } from '@modules/breath-engine'
 import { saveFreeTimerSession, getBestFreeTimerSession } from '../services/freeTimerWriter'
 import { useNoSleep } from '@utils/useNoSleep'
-import type { FreeTimerSession } from '@core/types'
+import type { FreeTimerSession, PhaseType } from '@core/types'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -179,6 +180,58 @@ const STEP_VISUAL: Record<WarmupStepType, { color: string; label: string }> = {
   exhale:   { color: '#34d399', label: 'Expiration' },
   co2:      { color: '#fb923c', label: 'CO₂' },
   go:       { color: '#f43f5e', label: 'GO !' },
+}
+
+// ── Warmup BreathCircle sub-phase helper ──────────────────────────────────────
+
+type WarmupSubPhase = { internalType: InternalPhaseType; progress: number; subDurationS: number }
+
+function internalToPublicPhase(t: InternalPhaseType): PhaseType {
+  if (t === 'hold-full' || t === 'hold-empty') return 'hold'
+  if (t === 'preparation') return 'inhale'
+  return t as PhaseType
+}
+
+function getWarmupSubPhase(
+  stepType: WarmupStepType,
+  stepElapsedS: number,
+  stepDurationS: number,
+): WarmupSubPhase {
+  switch (stepType) {
+    case 'breathe':
+    case 'recovery': {
+      // Cycle 4 s inspir + 6 s expir
+      const INHALE = 4, EXHALE = 6, CYCLE = 10
+      const pos = stepElapsedS % CYCLE
+      if (pos < INHALE) return { internalType: 'inhale',  progress: pos / INHALE,          subDurationS: INHALE }
+      return                { internalType: 'exhale',  progress: (pos - INHALE) / EXHALE,  subDurationS: EXHALE }
+    }
+    case 'co2': {
+      // Cycle 4-8-16-4 (Ocean Breath)
+      const PHASES: [InternalPhaseType, number][] = [
+        ['inhale', 4], ['hold-full', 8], ['exhale', 16], ['hold-empty', 4],
+      ]
+      const TOTAL = 32
+      const pos = stepElapsedS % TOTAL
+      let acc = 0
+      for (const [type, dur] of PHASES) {
+        if (pos < acc + dur) return { internalType: type, progress: (pos - acc) / dur, subDurationS: dur }
+        acc += dur
+      }
+      return { internalType: 'inhale', progress: 0, subDurationS: 4 }
+    }
+    case 'hold':
+      // Rétention poumons vides (FRC) — cercle statique réduit
+      return { internalType: 'hold-empty', progress: 0.5, subDurationS: stepDurationS }
+    case 'inhale':
+      return { internalType: 'inhale', progress: Math.min(stepElapsedS / stepDurationS, 1), subDurationS: stepDurationS }
+    case 'exhale':
+      return { internalType: 'exhale', progress: Math.min(stepElapsedS / stepDurationS, 1), subDurationS: stepDurationS }
+    case 'go':
+      return { internalType: 'hold-full', progress: 1, subDurationS: 2 }
+    default:
+      return { internalType: 'inhale', progress: 0, subDurationS: 4 }
+  }
 }
 
 // ── Warmup sound helpers ──────────────────────────────────────────────────────
@@ -525,9 +578,10 @@ export function FreeTimerPage() {
   const flashTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef       = useRef(true)
   // Son warmup
-  const warmupAudioRef   = useRef<AudioContext | null>(null)
-  const lastStepIdxRef   = useRef(-1)
-  const lastCountdownRef = useRef(-1)
+  const warmupAudioRef          = useRef<AudioContext | null>(null)
+  const lastStepIdxRef          = useRef(-1)
+  const lastCountdownRef        = useRef(-1)
+  const lastWarmupSubPhaseKeyRef = useRef<string>('')
 
   // Sync modeRef / phaseRef with state
   useEffect(() => { modeRef.current  = mode  }, [mode])
@@ -650,8 +704,10 @@ export function FreeTimerPage() {
     }
     cancelWarmupSound()
     if (warmupAudioRef.current) { warmupAudioRef.current.close().catch(() => {}); warmupAudioRef.current = null }
-    lastStepIdxRef.current   = -1
-    lastCountdownRef.current = -1
+    lastStepIdxRef.current          = -1
+    lastCountdownRef.current        = -1
+    lastWarmupSubPhaseKeyRef.current = ''
+    useBreathStore.getState().endSession()
     startWallRef.current = Date.now()
     startedAtRef.current = new Date().toISOString()
     lapsRef.current      = []
@@ -707,8 +763,10 @@ export function FreeTimerPage() {
         window.speechSynthesis.speak(unlock)
       } catch { /* ignore */ }
     }
-    lastStepIdxRef.current   = -1
-    lastCountdownRef.current = -1
+    lastStepIdxRef.current          = -1
+    lastCountdownRef.current        = -1
+    lastWarmupSubPhaseKeyRef.current = ''
+    useBreathStore.getState().endSession()
 
     protocolRef.current      = protocol
     warmupStartMsRef.current = Date.now()
@@ -750,6 +808,20 @@ export function FreeTimerPage() {
             lastCountdownRef.current = stepRemaining
             playBeep(ctx, 660, 0.12, 0.2)
           }
+
+          // ── BreathCircle animation ──────────────────────────────────────────
+          const subPhase    = getWarmupSubPhase(step.type, stepElapsedS, step.durationS)
+          const breathStore = useBreathStore.getState()
+          const subKey      = `${stepIndex}-${subPhase.internalType}`
+          if (subKey !== lastWarmupSubPhaseKeyRef.current) {
+            lastWarmupSubPhaseKeyRef.current = subKey
+            breathStore.setPhaseComplete(
+              internalToPublicPhase(subPhase.internalType),
+              subPhase.internalType,
+              subPhase.subDurationS,
+            )
+          }
+          breathStore.setProgress(subPhase.progress)
 
           setWarmupDisplay({
             protocolName:  protocol.name,
@@ -849,8 +921,10 @@ export function FreeTimerPage() {
     try { sessionStorage.removeItem('apnea_running') } catch { /* ignore */ }
     cancelWarmupSound()
     if (warmupAudioRef.current) { warmupAudioRef.current.close().catch(() => {}); warmupAudioRef.current = null }
-    lastStepIdxRef.current   = -1
-    lastCountdownRef.current = -1
+    lastStepIdxRef.current          = -1
+    lastCountdownRef.current        = -1
+    lastWarmupSubPhaseKeyRef.current = ''
+    useBreathStore.getState().endSession()
     setDisplayMs(0)
     setLapsMs([])
     setSavedSession(null)
@@ -1085,6 +1159,11 @@ function WarmupView({
         <p style={{ fontSize: '1.15rem', fontWeight: 500, lineHeight: 1.5, color: 'var(--color-text-primary)' }}>
           {display.instruction}
         </p>
+      </div>
+
+      {/* Animation cercle de respiration */}
+      <div className="flex justify-center py-2">
+        <BreathCircle />
       </div>
 
       {/* Compteur étape */}

@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom'
 import { BottomNav } from './BottomNav'
 import { SideNav } from './SideNav'
 import { useRiverAmbience } from '@modules/breath-engine'
+import { useSyncInit, usePreferencesSync } from '@core/sync'
 
 /**
  * Shell de l'application — layout responsive :
@@ -9,7 +10,9 @@ import { useRiverAmbience } from '@modules/breath-engine'
  * - Desktop (≥ 1024px) : nav latérale gauche
  */
 export function AppShell() {
-  useRiverAmbience()   // lecteur rivière global — actif hors session
+  useRiverAmbience()       // lecteur rivière global — actif hors session
+  useSyncInit()            // auth listener → syncManager.setUserId()
+  usePreferencesSync()     // push/pull préférences ↔ Supabase
 
   return (
     <div className="flex h-dvh bg-bg-base">

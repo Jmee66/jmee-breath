@@ -5,7 +5,8 @@ import type { UserSettings } from '../types/user.types'
 
 export interface SyncQueueEntry {
   id?: number
-  table: 'exercises' | 'sessions' | 'free_timer_sessions'
+  /** Tables Supabase concernées par la sync — étendre ici quand on ajoute une table. */
+  table: 'exercises' | 'sessions' | 'free_timer_sessions' | 'user_preferences'
   operation: 'upsert' | 'delete'
   recordId: string
   payload: unknown

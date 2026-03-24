@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Plus, Minus, Save, X, GripVertical } from 'lucide-react'
+import { Plus, Minus, Save, X, GripVertical, Ratio } from 'lucide-react'
 import type { Exercise, Phase, PhaseType, ExerciseCategory, DifficultyLevel } from '@core/types'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -90,13 +90,15 @@ interface PhaseRowProps {
   onChange: (index: number, phase: Phase) => void
   onRemove: (index: number) => void
   canRemove: boolean
+  /** Durée verrouillée (calculée par ratio) — seul le type est éditable */
+  locked?: boolean
 }
 
-function PhaseRow({ phase, index, onChange, onRemove, canRemove }: PhaseRowProps) {
+function PhaseRow({ phase, index, onChange, onRemove, canRemove, locked }: PhaseRowProps) {
   const colorClass = PHASE_OPTIONS.find((p) => p.value === phase.type)?.color ?? ''
 
   return (
-    <div className="flex items-center gap-2 rounded-xl bg-bg-elevated p-3">
+    <div className={`flex items-center gap-2 rounded-xl p-3 ${locked ? 'bg-bg-overlay/60' : 'bg-bg-elevated'}`}>
       {/* Drag handle placeholder */}
       <GripVertical size={14} className="text-white/80 flex-shrink-0" />
 
@@ -115,24 +117,35 @@ function PhaseRow({ phase, index, onChange, onRemove, canRemove }: PhaseRowProps
 
       {/* Duration stepper */}
       <div className="flex items-center gap-1.5">
-        <button
-          onClick={() => onChange(index, { ...phase, durationSeconds: clamp(phase.durationSeconds - 0.5, 0.5, 300) })}
-          className="flex h-9 w-9 items-center justify-center rounded-lg bg-bg-overlay text-white/80 hover:bg-bg-overlay/80 active:scale-95 transition-transform"
-        >
-          <Minus size={13} />
-        </button>
+        {!locked && (
+          <button
+            onClick={() => onChange(index, { ...phase, durationSeconds: clamp(phase.durationSeconds - 0.5, 0.5, 300) })}
+            className="flex h-9 w-9 items-center justify-center rounded-lg bg-bg-overlay text-white/80 hover:bg-bg-overlay/80 active:scale-95 transition-transform"
+          >
+            <Minus size={13} />
+          </button>
+        )}
 
-        <DurationInput
-          value={phase.durationSeconds}
-          onChange={(v) => onChange(index, { ...phase, durationSeconds: v })}
-        />
+        {locked ? (
+          <div className="w-12 flex items-baseline justify-center gap-px">
+            <span className="text-xs font-mono text-white/50">{phase.durationSeconds % 1 === 0 ? phase.durationSeconds : phase.durationSeconds.toFixed(1)}</span>
+            <span className="text-xs font-mono text-white/30">s</span>
+          </div>
+        ) : (
+          <DurationInput
+            value={phase.durationSeconds}
+            onChange={(v) => onChange(index, { ...phase, durationSeconds: v })}
+          />
+        )}
 
-        <button
-          onClick={() => onChange(index, { ...phase, durationSeconds: clamp(phase.durationSeconds + 0.5, 0.5, 300) })}
-          className="flex h-9 w-9 items-center justify-center rounded-lg bg-bg-overlay text-white/80 hover:bg-bg-overlay/80 active:scale-95 transition-transform"
-        >
-          <Plus size={13} />
-        </button>
+        {!locked && (
+          <button
+            onClick={() => onChange(index, { ...phase, durationSeconds: clamp(phase.durationSeconds + 0.5, 0.5, 300) })}
+            className="flex h-9 w-9 items-center justify-center rounded-lg bg-bg-overlay text-white/80 hover:bg-bg-overlay/80 active:scale-95 transition-transform"
+          >
+            <Plus size={13} />
+          </button>
+        )}
       </div>
 
       {/* Remove */}
@@ -176,16 +189,69 @@ export function ExerciseEditor({ initialExercise, onSave, onCancel }: ExerciseEd
   const [tagsInput, setTagsInput] = useState((initialExercise?.tags ?? []).join(', '))
   const [isSaving, setIsSaving] = useState(false)
 
+  // ── Mode ratio ──────────────────────────────────────────────────────────────
+  const [ratioMode, setRatioMode] = useState(false)
+  const [ratioValues, setRatioValues] = useState<number[]>([1, 1, 1, 1])
+
+  /** Calcule les durées des phases n≥1 à partir de la durée de la phase 0 et des ratios. */
+  function applyRatio(ratios: number[], currentPhases: Phase[]): Phase[] {
+    const ref = currentPhases[0]?.durationSeconds ?? 4
+    const base = ratios[0] || 1
+    return currentPhases.map((phase, i) =>
+      i === 0
+        ? phase
+        : { ...phase, durationSeconds: snapToHalf(clamp(ref * (ratios[i] ?? 1) / base, 0.5, 300)) }
+    )
+  }
+
+  function handleRatioChange(index: number, raw: string) {
+    const val = Math.max(0.5, parseFloat(raw.replace(',', '.')) || 1)
+    const newRatios = ratioValues.map((r, i) => i === index ? val : r)
+    setRatioValues(newRatios)
+    setPhases((prev) => applyRatio(newRatios, prev))
+  }
+
+  function toggleRatioMode() {
+    if (!ratioMode) {
+      const newRatios = phases.map(() => 1)
+      setRatioValues(newRatios)
+      // pas de recalcul — les durées actuelles restent jusqu'au 1er changement
+    }
+    setRatioMode((v) => !v)
+  }
+
+  // ── Handlers phases ─────────────────────────────────────────────────────────
+
   function handlePhaseChange(index: number, updated: Phase) {
-    setPhases((prev) => prev.map((p, i) => (i === index ? updated : p)))
+    setPhases((prev) => {
+      const next = prev.map((p, i) => (i === index ? updated : p))
+      // en mode ratio, si la phase de référence (0) change de durée → recalcul
+      if (ratioMode && index === 0) return applyRatio(ratioValues, next)
+      // en mode ratio, phases verrouillées (>0) : on laisse quand même le type changer
+      return next
+    })
   }
 
   function handleRemovePhase(index: number) {
-    setPhases((prev) => prev.filter((_, i) => i !== index))
+    const newPhases = phases.filter((_, i) => i !== index)
+    const newRatios = ratioValues.filter((_, i) => i !== index)
+    if (ratioMode) {
+      setRatioValues(newRatios)
+      setPhases(applyRatio(newRatios, newPhases))
+    } else {
+      setPhases(newPhases)
+    }
   }
 
   function handleAddPhase() {
-    setPhases((prev) => [...prev, { type: 'exhale', durationSeconds: 4 }])
+    const newPhases = [...phases, { type: 'exhale' as PhaseType, durationSeconds: 4 }]
+    const newRatios = [...ratioValues, 1]
+    if (ratioMode) {
+      setRatioValues(newRatios)
+      setPhases(applyRatio(newRatios, newPhases))
+    } else {
+      setPhases(newPhases)
+    }
   }
 
   async function handleSave() {
@@ -273,7 +339,59 @@ export function ExerciseEditor({ initialExercise, onSave, onCancel }: ExerciseEd
 
       {/* ── Phases ── */}
       <div className="space-y-2">
-        <label className="text-xs font-medium text-white/80">Phases respiratoires</label>
+
+        {/* Header : label + toggle ratio */}
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-medium text-white/80">Phases respiratoires</label>
+          <button
+            onClick={toggleRatioMode}
+            className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium transition-colors ${
+              ratioMode
+                ? 'bg-accent/20 text-accent border border-accent/40'
+                : 'text-white/50 hover:text-white/80 border border-transparent'
+            }`}
+          >
+            <Ratio size={11} />
+            Mode ratio
+          </button>
+        </div>
+
+        {/* Carte ratio — visible seulement en mode ratio */}
+        {ratioMode && (
+          <div className="rounded-xl border border-accent/30 bg-accent/5 p-3 space-y-2.5">
+            {/* Inputs ratio */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs text-white/50 mr-0.5">Ratio</span>
+              {ratioValues.map((r, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  {i > 0 && <span className="text-white/30 text-sm leading-none">:</span>}
+                  <input
+                    type="number"
+                    min={0.5}
+                    step={1}
+                    value={r}
+                    onChange={(e) => handleRatioChange(i, e.target.value)}
+                    className="w-10 rounded-lg border border-accent/30 bg-bg-overlay px-1 py-1.5 text-center text-sm font-mono text-accent outline-none focus:border-accent
+                      [appearance:textfield]
+                      [&::-webkit-inner-spin-button]:appearance-none
+                      [&::-webkit-outer-spin-button]:appearance-none"
+                  />
+                </div>
+              ))}
+            </div>
+            {/* Aperçu du résultat */}
+            <div className="text-xs text-white/40 leading-relaxed">
+              Modifiez la <span className="text-white/70 font-medium">1ʳᵉ phase</span> — les autres s'ajustent automatiquement.
+              {phases.length >= 2 && (
+                <span className="ml-1 text-accent/70">
+                  ({phases[0].durationSeconds}s × ratio → {phases.slice(1).map((p) => `${p.durationSeconds}s`).join(' / ')})
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Liste des phases */}
         <div className="space-y-2">
           {phases.map((phase, idx) => (
             <PhaseRow
@@ -283,9 +401,11 @@ export function ExerciseEditor({ initialExercise, onSave, onCancel }: ExerciseEd
               onChange={handlePhaseChange}
               onRemove={handleRemovePhase}
               canRemove={phases.length > 1}
+              locked={ratioMode && idx > 0}
             />
           ))}
         </div>
+
         <button
           onClick={handleAddPhase}
           className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-border py-2 text-xs text-white/80 hover:border-accent hover:text-accent transition-colors"

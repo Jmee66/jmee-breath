@@ -135,8 +135,10 @@ export default function SettingsPageRoute() {
   // Sons de phases
   const soundEnabled    = useSoundStore((s) => s.soundEnabled)
   const soundVolume     = useSoundStore((s) => s.soundVolume)
+  const bowlOnPhase     = useSoundStore((s) => s.bowlOnPhase)
   const setSoundEnabled = useSoundStore((s) => s.setSoundEnabled)
   const setSoundVolume  = useSoundStore((s) => s.setSoundVolume)
+  const setBowlOnPhase  = useSoundStore((s) => s.setBowlOnPhase)
 
   // Rivière
   const riverEnabled    = useRiverStore((s) => s.riverEnabled)
@@ -187,6 +189,13 @@ export default function SettingsPageRoute() {
               iconLeft={<VolumeX size={13} className="text-text-muted" />}
               iconRight={<Volume2 size={13} className="text-text-muted" />}
             />
+
+            <SettingRow
+              label="Bong à chaque phase"
+              hint="Bong bol tibétain léger à chaque changement de phase"
+            >
+              <Toggle value={bowlOnPhase} onChange={setBowlOnPhase} />
+            </SettingRow>
           </>}
 
           {/* ── Rivière ──────────────────────────────────────────────────── */}

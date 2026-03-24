@@ -146,7 +146,7 @@ export function useBreathSession() {
     sessionIdRef.current = sessionId
 
     // Lit les préférences au moment du démarrage (snapshot, pas de subscription)
-    const { soundEnabled, soundVolume, soundSet } = useSoundStore.getState()
+    const { soundEnabled, soundVolume, soundSet, bowlOnPhase } = useSoundStore.getState()
     const { droneEnabled, droneVolume }            = useDroneStore.getState()
     const { voiceEnabled, voiceVolume, voiceRate, voicePitch } = useVoiceGuideStore.getState()
 
@@ -172,7 +172,7 @@ export function useBreathSession() {
         onRepComplete: handleRepComplete,
         onSessionComplete: handleSessionComplete,
       },
-      { enabled: soundEnabled, volume: soundVolume, soundSet },
+      { enabled: soundEnabled, volume: soundVolume, soundSet, bowlOnPhase },
       { enabled: droneEnabled, volume: droneVolume },
     )
     clockRef.current = clock

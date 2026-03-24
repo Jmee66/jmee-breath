@@ -70,11 +70,13 @@ export class BreathSoundEngine {
   private readonly globalLpf: BiquadFilterNode   // nœud permanent — pas de fuite mémoire
   private pendingOscillators: OscillatorNode[] = []
   private bowlScheduled = false
+  private readonly bowlOnPhase: boolean
 
   constructor(
     private readonly audioCtx: AudioContext,
     settings: SoundSettings,
   ) {
+    this.bowlOnPhase = settings.bowlOnPhase ?? false
     // Chaîne fixe : oscillateurs → globalLpf → masterGain → destination
     this.masterGain = audioCtx.createGain()
     this.masterGain.gain.value = settings.enabled ? settings.volume : 0
@@ -97,10 +99,20 @@ export class BreathSoundEngine {
     this.bowlScheduled = false
 
     for (const phase of phases) {
-      // Bol : une seule frappe au démarrage du 1er inhale (début de l'exercice)
+      // Bol d'ouverture : frappe pleine au 1er inhale de l'exercice
       if (!this.bowlScheduled && phase.internalType === 'inhale' && phase.repIndex === 0) {
         this.scheduleBowl(phase.startTime)
         this.bowlScheduled = true
+      }
+
+      // Bong léger à chaque changement de phase (si option activée)
+      // → on saute la phase 0 inhale (déjà couverte par le bol d'ouverture)
+      if (
+        this.bowlOnPhase &&
+        phase.repIndex >= 0 &&
+        !(phase.internalType === 'inhale' && phase.repIndex === 0)
+      ) {
+        this.scheduleBowlLite(phase.startTime)
       }
 
       // Pad continu pour toutes les phases actives (repIndex >= 0)
@@ -156,6 +168,43 @@ export class BreathSoundEngine {
       gain.gain.setValueAtTime(0, t)
       gain.gain.linearRampToValueAtTime(h.gain, t + attackTime)
       gain.gain.exponentialRampToValueAtTime(0.0001, t + attackTime + h.decay)
+
+      osc.connect(gain)
+      gain.connect(this.globalLpf)
+      osc.start(t)
+      osc.stop(stop)
+      this.track(osc)
+    })
+  }
+
+  /**
+   * Bong léger pour marquer chaque changement de phase.
+   * Mêmes partiels que le bol complet mais :
+   *  · Gain réduit à 55 % — discret, ne masque pas le pad
+   *  · Décroissance ×0.5 — court (~2 s) pour ne pas chevaucher la phase
+   *  · Pas de vibrato — évite l'effet "double bol"
+   */
+  private scheduleBowlLite(t: number): void {
+    if (t < this.audioCtx.currentTime) return
+
+    const attackTime = 0.02
+    const gainScale  = 0.55
+    const decayScale = 0.50
+
+    BOWL_HARMONICS.forEach((h) => {
+      const freq  = BOWL_FREQ * h.ratio
+      const decay = h.decay * decayScale
+      const stop  = t + attackTime + decay + 0.1
+
+      const osc  = this.audioCtx.createOscillator()
+      const gain = this.audioCtx.createGain()
+
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(freq, t)
+
+      gain.gain.setValueAtTime(0, t)
+      gain.gain.linearRampToValueAtTime(h.gain * gainScale, t + attackTime)
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + attackTime + decay)
 
       osc.connect(gain)
       gain.connect(this.globalLpf)

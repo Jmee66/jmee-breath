@@ -17,56 +17,27 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Play, Square, RotateCcw, Wind, CheckCircle2, SkipForward, Pencil, Check, Flag, Volume2, VolumeX } from 'lucide-react'
+import { Play, Square, RotateCcw, Wind, CheckCircle2, SkipForward, Pencil, Check, Flag, Volume2, VolumeX, Plus, Trash2 } from 'lucide-react'
 import { PageContainer } from '@modules/theme'
-import { useVoiceGuideStore, useSoundStore, useRiverStore, BreathCircle, useBreathStore } from '@modules/breath-engine'
-import type { InternalPhaseType } from '@modules/breath-engine'
+import { useVoiceGuideStore, useSoundStore, useRiverStore, useDroneStore, BreathCircle, useBreathStore, BreathClock } from '@modules/breath-engine'
+import { BreathVoiceGuide, estimatePreparationDuration } from '@modules/breath-engine/voice/BreathVoiceGuide'
 import { saveFreeTimerSession, getBestFreeTimerSession } from '../services/freeTimerWriter'
+import { getAllCustomWarmups, saveCustomWarmup, deleteCustomWarmup } from '../services/customWarmupWriter'
+import { CustomWarmupEditor } from './CustomWarmupEditor'
 import { useNoSleep } from '@utils/useNoSleep'
-import type { FreeTimerSession, PhaseType } from '@core/types'
+import type { FreeTimerSession } from '@core/types'
+import type { Exercise, Phase } from '@core/types'
+import type { WarmupStep, WarmupProtocol, WarmupDisplay, WarmupBreathPattern, WarmupStepType, CustomWarmup } from '../types'
 
-// ── Types ──────────────────────────────────────────────────────────────────────
+// ── Types locaux ───────────────────────────────────────────────────────────────
 
-type TimerPhase     = 'idle' | 'warmup' | 'running' | 'finished'
-type TimerMode      = 'apnea' | 'free'
-type WarmupStepType = 'breathe' | 'hold' | 'recovery' | 'inhale' | 'exhale' | 'co2' | 'go'
+type TimerPhase = 'idle' | 'warmup' | 'running' | 'recovery' | 'finished'
+type TimerMode  = 'apnea' | 'free'
 
-/**
- * Pattern d'animation BreathCircle pour chaque étape.
- * Explicite — évite tout heuristique sur le type ou le texte.
- */
-type WarmupBreathPattern =
-  | 'soupir'           // Soupir simple : 3 s inspir + 7 s expir
-  | 'soupir-cyclique'  // Double inspir : 4 s inspir + 2 s top-up + 10 s expir = 16 s cycle
-  | '6-6-12'           // Cohérence cardiaque : 6 s inhale + 6 s hold + 12 s exhale
-  | 'hold-full'        // Rétention poumons pleins (statique, grand cercle)
-  | 'hold-empty'       // Rétention poumons vides / FRC (statique, petit cercle)
-  | 'inhale'           // Inspiration progressive sur toute la durée
-  | 'exhale'           // Expiration progressive sur toute la durée
-  | 'co2'              // Ocean Breath 4-8-16-4
-  | 'countdown'        // Cercle plein → vide sur la durée (compte à rebours visuel)
-  | 'go'               // Décompte final
-
-interface WarmupStep {
+interface RecoveryStep {
+  pattern:     WarmupBreathPattern
   durationS:   number
   instruction: string
-  type:        WarmupStepType
-  phaseName:   string
-  pattern:     WarmupBreathPattern
-}
-interface WarmupProtocol {
-  name:  string
-  steps: WarmupStep[]
-}
-interface WarmupDisplay {
-  protocolName:  string
-  phaseName:     string
-  instruction:   string
-  stepRemaining: number   // secondes, arrondi sup
-  stepProgress:  number   // 0→1
-  totalProgress: number   // 0→1
-  type:          WarmupStepType
-  isGo:          boolean
 }
 
 // ── Formatters ────────────────────────────────────────────────────────────────
@@ -138,12 +109,12 @@ const WARMUP_PROTOCOLS: Record<number, WarmupProtocol> = {
     { durationS: 2,   type: 'go',      pattern: 'go',         phaseName: '',                instruction: 'APNÉE — GO !' },
   ]},
   180: { name: "L'ÉVEIL", steps: [
-    { durationS: 60, type: 'breathe',  pattern: '6-6-12',     phaseName: 'Phase 1 · Détente', instruction: 'Respiration 6-6-12 : Calme Plat' },
-    { durationS: 30, type: 'hold',     pattern: 'hold-empty', phaseName: 'Phase 2 · Rate',    instruction: 'Apnée Poumons Vides (FRC)' },
-    { durationS: 60, type: 'recovery', pattern: 'soupir',     phaseName: 'Phase 2 · Rate',    instruction: 'Récupération Calme' },
-    { durationS: 10, type: 'inhale',   pattern: 'inhale',     phaseName: 'Phase 3 · Zoom',    instruction: 'Ocean Breath Léger (Inspiration 10s)' },
-    { durationS: 10, type: 'hold',     pattern: 'hold-full',  phaseName: 'Phase 3 · Zoom',    instruction: 'Expiration Passive · Blocage sur le plein' },
-    { durationS: 2,  type: 'go',       pattern: 'go',         phaseName: '',                  instruction: 'APNÉE — GO !' },
+    { durationS: 60, type: 'breathe',  pattern: '6-6-12',     phaseName: 'Détente',    instruction: 'Détente 6-6-12 · Calme le système nerveux' },
+    { durationS: 30, type: 'hold',     pattern: 'hold-empty', phaseName: 'Rate',       instruction: 'Apnée Poumons Vides · Réveille la Rate (30s)' },
+    { durationS: 60, type: 'recovery', pattern: 'soupir',     phaseName: 'Récup',      instruction: 'Récupération Calme' },
+    { durationS: 10, type: 'inhale',   pattern: 'inhale',     phaseName: 'Final',      instruction: 'Ocean Breath léger · Inspiration (10s)' },
+    { durationS: 10, type: 'hold',     pattern: 'hold-full',  phaseName: 'Final',      instruction: 'Expiration passive · Blocage plein (10s)' },
+    { durationS: 2,  type: 'go',       pattern: 'go',         phaseName: '',           instruction: 'APNÉE — GO !' },
   ]},
   300: { name: 'LE STANDARD', steps: [
     { durationS: 120, type: 'breathe',  pattern: '6-6-12',     phaseName: 'Phase 1 · Détente', instruction: 'Respiration 6-6-12 : Baisse Tension' },
@@ -200,143 +171,75 @@ const STEP_VISUAL: Record<WarmupStepType, { color: string; label: string }> = {
   go:       { color: '#f43f5e', label: 'GO !' },
 }
 
-// ── Warmup BreathCircle sub-phase helper ──────────────────────────────────────
+// ── Warmup BreathEngine helpers ───────────────────────────────────────────────
 
-type WarmupSubPhase = { internalType: InternalPhaseType; progress: number; subDurationS: number }
-
-function internalToPublicPhase(t: InternalPhaseType): PhaseType {
-  if (t === 'hold-full' || t === 'hold-empty') return 'hold'
-  if (t === 'preparation') return 'inhale'
-  return t as PhaseType
-}
-
-/** Retourne la sous-phase BreathCircle en fonction du pattern explicite de l'étape. */
-function getWarmupSubPhase(
-  pattern: WarmupBreathPattern,
-  stepElapsedS: number,
-  stepDurationS: number,
-): WarmupSubPhase {
+/** Convertit un pattern en tableau de phases Exercise. */
+function patternToPhases(pattern: WarmupBreathPattern, durationS: number): Phase[] {
   switch (pattern) {
-
-    case 'soupir': {
-      // Soupir simple : 3 s inspir + 7 s expir = 10 s cycle
-      const INHALE = 3, EXHALE = 7, CYCLE = 10
-      const pos = stepElapsedS % CYCLE
-      if (pos < INHALE) return { internalType: 'inhale', progress: pos / INHALE,         subDurationS: INHALE }
-      return               { internalType: 'exhale', progress: (pos - INHALE) / EXHALE, subDurationS: EXHALE }
-    }
-
-    case 'soupir-cyclique': {
-      // 3 phases distinctes par cycle = 16 s
-      //  · 4 s inspir lent  → cercle gonfle (bleu)
-      //  · 2 s top-up       → cercle pulse au max (hold-full bleu) = second inspir rapide
-      //  · 10 s expir lent  → cercle dégonfle (violet)
-      const I1 = 4, HOLD = 2, EX = 10, CYCLE = 16
-      const pos = stepElapsedS % CYCLE
-      if (pos < I1)          return { internalType: 'inhale',    progress: pos / I1,            subDurationS: I1   }
-      if (pos < I1 + HOLD)   return { internalType: 'hold-full', progress: (pos - I1) / HOLD,   subDurationS: HOLD }
-      return                        { internalType: 'exhale',    progress: (pos - I1 - HOLD) / EX, subDurationS: EX }
-    }
-
-    case '6-6-12': {
-      // Cohérence cardiaque : 6 s inhale + 6 s hold-full + 12 s exhale = 24 s
-      const PHASES: [InternalPhaseType, number][] = [['inhale', 6], ['hold-full', 6], ['exhale', 12]]
-      const CYCLE = 24
-      const pos = stepElapsedS % CYCLE
-      let acc = 0
-      for (const [type, dur] of PHASES) {
-        if (pos < acc + dur) return { internalType: type, progress: (pos - acc) / dur, subDurationS: dur }
-        acc += dur
-      }
-      return { internalType: 'inhale', progress: 0, subDurationS: 6 }
-    }
-
-    case 'co2': {
-      // Ocean Breath : 4-8-16-4 = 32 s
-      const PHASES: [InternalPhaseType, number][] = [
-        ['inhale', 4], ['hold-full', 8], ['exhale', 16], ['hold-empty', 4],
+    case 'soupir':
+      return [
+        { type: 'inhale', durationSeconds: 3 },
+        { type: 'exhale', durationSeconds: 7 },
       ]
-      const CYCLE = 32
-      const pos = stepElapsedS % CYCLE
-      let acc = 0
-      for (const [type, dur] of PHASES) {
-        if (pos < acc + dur) return { internalType: type, progress: (pos - acc) / dur, subDurationS: dur }
-        acc += dur
-      }
-      return { internalType: 'inhale', progress: 0, subDurationS: 4 }
-    }
-
-    case 'hold-full':
-      return { internalType: 'hold-full',  progress: 1,   subDurationS: stepDurationS }
-
-    case 'hold-empty':
-      return { internalType: 'hold-empty', progress: 0.5, subDurationS: stepDurationS }
-
+    case 'soupir-cyclique':
+      // 4s inspir + 2s inspir rapide + 6s rétention + 12s expiration = 24s cycle
+      return [
+        { type: 'inhale', durationSeconds: 4,  label: 'Inspir lent' },
+        { type: 'inhale', durationSeconds: 2,  label: 'Inspir rapide' },
+        { type: 'hold',   durationSeconds: 6,  label: 'Rétention' },
+        { type: 'exhale', durationSeconds: 12, label: 'Expiration' },
+      ]
+    case '6-6-12':
+      return [
+        { type: 'inhale', durationSeconds: 6 },
+        { type: 'hold',   durationSeconds: 6 },
+        { type: 'exhale', durationSeconds: 12 },
+      ]
+    case 'co2':
+      return [
+        { type: 'inhale',   durationSeconds: 4  },
+        { type: 'hold',     durationSeconds: 8  },
+        { type: 'exhale',   durationSeconds: 16 },
+        { type: 'recovery', durationSeconds: 4  },
+      ]
     case 'inhale':
-      return { internalType: 'inhale', progress: Math.min(stepElapsedS / stepDurationS, 1), subDurationS: stepDurationS }
-
+      return [{ type: 'inhale', durationSeconds: durationS }]
     case 'exhale':
-      return { internalType: 'exhale', progress: Math.min(stepElapsedS / stepDurationS, 1), subDurationS: stepDurationS }
-
+      return [{ type: 'exhale', durationSeconds: durationS }]
+    case 'hold-full':
+      return [{ type: 'hold', durationSeconds: durationS }]
+    case 'hold-empty':
+      return [{ type: 'hold', durationSeconds: durationS }]
     case 'countdown':
-      // Cercle plein qui se vide au fil du temps — représente le compte à rebours
-      return {
-        internalType: 'hold-full',
-        progress: Math.max(0.15, 1 - stepElapsedS / stepDurationS),
-        subDurationS: stepDurationS,
-      }
-
+      return [{ type: 'hold', durationSeconds: durationS }]
     case 'go':
-      return { internalType: 'hold-full', progress: 1, subDurationS: 2 }
-
+      return [{ type: 'hold', durationSeconds: 2 }]
     default:
-      return { internalType: 'inhale', progress: 0, subDurationS: 4 }
+      return [{ type: 'inhale', durationSeconds: 4 }]
   }
 }
 
-// ── Warmup sound helpers ──────────────────────────────────────────────────────
-
-function playBeep(ctx: AudioContext, freq: number, durationS: number, vol = 0.25) {
-  try {
-    const osc  = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-    osc.type = 'sine'
-    osc.frequency.value = freq
-    gain.gain.setValueAtTime(vol, ctx.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationS)
-    osc.start(ctx.currentTime)
-    osc.stop(ctx.currentTime + durationS)
-  } catch { /* AudioContext suspendu ou fermé */ }
-}
-
-/** Estime la durée de parole en secondes selon le texte et le débit. */
-function estimateSpeechDurationS(text: string, rate: number): number {
-  const words = text.split(/\s+/).filter(Boolean).length
-  const wpm   = Math.max(60, rate * 150)          // ~150 mots/min à débit=1
-  return Math.max(2, (words / wpm) * 60 + 0.8)   // +0.8 s de silence final
-}
-
-function speakWarmup(text: string) {
-  if (!('speechSynthesis' in window)) return
-  try {
-    const s = useVoiceGuideStore.getState()
-    if (!s.voiceEnabled) return
-    const synth = window.speechSynthesis
-    if (synth.paused) synth.resume()
-    synth.cancel()
-    const u    = new SpeechSynthesisUtterance(text)
-    u.lang     = 'fr-FR'
-    u.volume   = s.voiceVolume
-    u.rate     = s.voiceRate
-    u.pitch    = s.voicePitch
-    synth.speak(u)
-  } catch { /* speechSynthesis indisponible */ }
-}
-
-function cancelWarmupSound() {
-  try { if ('speechSynthesis' in window) window.speechSynthesis.cancel() } catch { /* silence */ }
+/** Construit un Exercise minimal à partir d'un WarmupStep pour le BreathClock. */
+function patternToExercise(step: WarmupStep): Exercise {
+  const phases  = patternToPhases(step.pattern, step.durationS)
+  const cycleS  = phases.reduce((s, p) => s + p.durationSeconds, 0)
+  const isLoop  = ['soupir', 'soupir-cyclique', '6-6-12', 'co2'].includes(step.pattern)
+  const reps    = isLoop ? Math.max(1, Math.ceil(step.durationS / cycleS) + 1) : 1
+  return {
+    id:                     `warmup-${step.pattern}`,
+    name:                   step.instruction,
+    description:            '',
+    category:               'preparation',
+    difficulty:             1,
+    tags:                   [],
+    phases,
+    repetitions:            reps,
+    restBetweenRepsSeconds: 0,
+    isPreset:               true,
+    createdAt:              '',
+    updatedAt:              '',
+    customPresets:          [],
+  }
 }
 
 // ── Personal Best storage ─────────────────────────────────────────────────────
@@ -621,6 +524,14 @@ export function FreeTimerPage() {
   const [pbSeconds,          setPbSeconds]          = useState<number | null>(loadPb)
   const [baseSeconds,        setBaseSeconds]        = useState<number | null>(loadBase)
   const [bestSessionSeconds, setBestSessionSeconds] = useState<number | null>(null)
+  // Custom warmups
+  const [customWarmups,      setCustomWarmups]      = useState<CustomWarmup[]>([])
+  const [selectedCustomId,   setSelectedCustomId]   = useState<string | null>(null)
+  const [warmupTab,          setWarmupTab]          = useState<'presets' | 'custom'>('presets')
+  const [showEditor,         setShowEditor]         = useState(false)
+  const [editingWarmup,      setEditingWarmup]      = useState<CustomWarmup | undefined>(undefined)
+  // Recovery
+  const [recoveryDisplay,    setRecoveryDisplay]    = useState<{ instruction: string; remaining: number; progress: number } | null>(null)
 
   const handlePbChange = useCallback((secs: number | null) => {
     setPbSeconds(secs)
@@ -644,13 +555,14 @@ export function FreeTimerPage() {
   const tickFnRef        = useRef<(() => void) | null>(null)
   const flashTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef       = useRef(true)
-  // Son warmup
-  const warmupAudioRef          = useRef<AudioContext | null>(null)
-  const lastStepIdxRef          = useRef(-1)
-  const lastCountdownRef        = useRef(-1)
-  const lastWarmupSubPhaseKeyRef = useRef<string>('')
-  const stepPrepEndAtRef         = useRef<number>(0)   // timestamp ms où la prépare se termine
-  const stepPrepDurationSRef     = useRef<number>(0)   // durée de la prépa en secondes
+  // BreathClock par étape de l'échauffement
+  const warmupClockRef    = useRef<BreathClock | null>(null)
+  const warmupVoiceRef    = useRef<BreathVoiceGuide | null>(null)
+  const lastStepIdxRef    = useRef(-1)
+  // Recovery post-apnée
+  const activeRecoveryRef     = useRef<RecoveryStep | null>(null)
+  const recoveryStartMsRef    = useRef<number>(0)
+  const recoveryDurationSRef  = useRef<number>(0)
 
   // Sync modeRef / phaseRef with state
   useEffect(() => { modeRef.current  = mode  }, [mode])
@@ -661,6 +573,9 @@ export function FreeTimerPage() {
     mountedRef.current = true
     getBestFreeTimerSession().then((s) => {
       if (s && mountedRef.current) setBestSessionSeconds(s.durationSeconds)
+    })
+    getAllCustomWarmups().then((list) => {
+      if (mountedRef.current) setCustomWarmups(list)
     })
 
     // Restore running timer if iOS killed the page while timer was active
@@ -695,8 +610,8 @@ export function FreeTimerPage() {
       mountedRef.current = false
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
       if (flashTimerRef.current !== null) clearTimeout(flashTimerRef.current)
-      cancelWarmupSound()
-      if (warmupAudioRef.current) { warmupAudioRef.current.close().catch(() => {}) }
+      warmupVoiceRef.current?.cancel()
+      warmupClockRef.current?.stop()
     }
   }, [])
 
@@ -736,11 +651,6 @@ export function FreeTimerPage() {
 
       // — Page redevient visible —
 
-      // Résume AudioContext warmup (iOS le suspend)
-      if (warmupAudioRef.current?.state === 'suspended') {
-        void warmupAudioRef.current.resume()
-      }
-
       // Ré-acquiert le Wake Lock (OS le libère automatiquement au verrouillage)
       const activePhase = phaseRef.current
       if (activePhase === 'running' || activePhase === 'warmup') {
@@ -766,18 +676,73 @@ export function FreeTimerPage() {
 
   // ── Actions ─────────────────────────────────────────────────────────────────
 
+  const stopWarmupClock = useCallback(() => {
+    warmupVoiceRef.current?.cancel()
+    warmupVoiceRef.current = null
+    warmupClockRef.current?.stop()
+    warmupClockRef.current = null
+    useBreathStore.getState().endSession()
+  }, [])
+
+  const startWarmupStepClock = useCallback((step: WarmupStep) => {
+    if (step.type === 'go') return
+    const exercise = patternToExercise(step)
+    const snd      = useSoundStore.getState()
+    const drn      = useDroneStore.getState()
+    const vce      = useVoiceGuideStore.getState()
+
+    const voiceGuide = new BreathVoiceGuide({
+      enabled: vce.voiceEnabled,
+      volume:  vce.voiceVolume,
+      rate:    vce.voiceRate,
+      pitch:   vce.voicePitch,
+    })
+    voiceGuide.setExercise(exercise)
+    warmupVoiceRef.current = voiceGuide
+
+    const prepDuration = vce.voiceEnabled
+      ? estimatePreparationDuration(exercise, vce.voiceRate)
+      : 3
+
+    const clock = new BreathClock(
+      {
+        onPhaseChange: (phase) => {
+          voiceGuide.speak(phase.internalType)
+          useBreathStore.getState().setPhaseComplete(
+            phase.publicType,
+            phase.internalType,
+            phase.durationSeconds,
+          )
+        },
+        onTick: (progress, remaining) => {
+          useBreathStore.getState().setProgress(progress)
+          useBreathStore.getState().setRemaining(remaining)
+        },
+        onRepComplete: () => {},
+        onSessionComplete: () => {},
+      },
+      {
+        enabled:    snd.soundEnabled,
+        volume:     snd.soundVolume,
+        soundSet:   snd.soundSet,
+        bowlOnPhase: snd.bowlOnPhase,
+      },
+      {
+        enabled: drn.droneEnabled,
+        volume:  drn.droneVolume,
+      },
+    )
+    warmupClockRef.current = clock
+    void clock.start(exercise, prepDuration)
+  }, [])
+
   const startTimer = useCallback(() => {
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current)
       rafRef.current = null
     }
-    cancelWarmupSound()
-    if (warmupAudioRef.current) { warmupAudioRef.current.close().catch(() => {}); warmupAudioRef.current = null }
-    lastStepIdxRef.current          = -1
-    lastCountdownRef.current        = -1
-    lastWarmupSubPhaseKeyRef.current = ''
-    stepPrepEndAtRef.current         = 0
-    stepPrepDurationSRef.current     = 0
+    stopWarmupClock()
+    lastStepIdxRef.current = -1
     useBreathStore.getState().endSession()
     startWallRef.current = Date.now()
     startedAtRef.current = new Date().toISOString()
@@ -808,24 +773,13 @@ export function FreeTimerPage() {
         mode:        modeRef.current,
       }))
     } catch { /* ignore */ }
-  }, [requestWakeLock])
+  }, [requestWakeLock, stopWarmupClock])
 
-  const startWarmup = useCallback((durationS: number) => {
-    const protocol = WARMUP_PROTOCOLS[durationS]
+  const startWarmup = useCallback((protocol: WarmupProtocol) => {
     if (!protocol) { startTimer(); return }
 
     if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
 
-    // Init audio (user gesture context) — webkit fallback pour iOS
-    try {
-      if (warmupAudioRef.current) { warmupAudioRef.current.close().catch(() => {}) }
-      const AudioCtx = window.AudioContext
-        ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-      warmupAudioRef.current = new AudioCtx()
-      if (warmupAudioRef.current.state === 'suspended') {
-        void warmupAudioRef.current.resume()
-      }
-    } catch { warmupAudioRef.current = null }
     // Déverrouille speechSynthesis sur iOS (doit être appelé depuis un geste utilisateur)
     if ('speechSynthesis' in window) {
       try {
@@ -834,12 +788,9 @@ export function FreeTimerPage() {
         window.speechSynthesis.speak(unlock)
       } catch { /* ignore */ }
     }
-    lastStepIdxRef.current          = -1
-    lastCountdownRef.current        = -1
-    lastWarmupSubPhaseKeyRef.current = ''
-    stepPrepEndAtRef.current         = 0
-    stepPrepDurationSRef.current     = 0
-    useBreathStore.getState().endSession()
+
+    stopWarmupClock()
+    lastStepIdxRef.current   = -1
 
     protocolRef.current      = protocol
     warmupStartMsRef.current = Date.now()
@@ -859,67 +810,12 @@ export function FreeTimerPage() {
         if (elapsedS < acc + step.durationS) {
           const stepElapsedS  = elapsedS - acc
           const stepRemaining = Math.ceil(step.durationS - stepElapsedS)
-          const ctx           = warmupAudioRef.current
 
-          // Nouvelle étape détectée
+          // Nouvelle étape détectée → démarre un nouveau BreathClock
           if (stepIndex !== lastStepIdxRef.current) {
-            lastStepIdxRef.current          = stepIndex
-            lastCountdownRef.current        = -1
-            lastWarmupSubPhaseKeyRef.current = ''   // force re-entrée dans le bloc animation
-
-            // Durée de préparation = durée estimée de la voix (0 si voix off ou étape "go")
-            const voiceStore = useVoiceGuideStore.getState()
-            const prepS      = (step.type === 'go' || !voiceStore.voiceEnabled)
-              ? 0
-              : estimateSpeechDurationS(step.instruction, voiceStore.voiceRate)
-            stepPrepDurationSRef.current = prepS
-            stepPrepEndAtRef.current     = Date.now() + prepS * 1000
-
-            if (ctx) {
-              if (step.type === 'go') {
-                playBeep(ctx, 880, 0.6, 0.3)
-                speakWarmup('Apnée')
-              } else {
-                playBeep(ctx, 440, 0.3)
-                speakWarmup(step.instruction)
-              }
-            }
-          }
-
-          // Bips décompte 3-2-1 (étapes non-go)
-          if (ctx && step.type !== 'go' && stepRemaining <= 3 && stepRemaining !== lastCountdownRef.current) {
-            lastCountdownRef.current = stepRemaining
-            playBeep(ctx, 660, 0.12, 0.2)
-          }
-
-          // ── BreathCircle animation ──────────────────────────────────────────
-          const breathStore = useBreathStore.getState()
-          const now         = Date.now()
-          const inPrep      = step.type !== 'go' && now < stepPrepEndAtRef.current
-
-          if (inPrep) {
-            // Cercle gris statique pendant l'annonce vocale
-            const prepKey = `${stepIndex}-preparation`
-            if (prepKey !== lastWarmupSubPhaseKeyRef.current) {
-              lastWarmupSubPhaseKeyRef.current = prepKey
-              breathStore.setPhaseComplete('inhale', 'preparation', stepPrepDurationSRef.current)
-            }
-            breathStore.setProgress(0.5)
-          } else {
-            // Pattern réel — soustrait la durée de prépa pour que le cycle parte de 0
-            const patternElapsedS  = Math.max(0, stepElapsedS - stepPrepDurationSRef.current)
-            const patternDurationS = Math.max(1, step.durationS - stepPrepDurationSRef.current)
-            const subPhase         = getWarmupSubPhase(step.pattern, patternElapsedS, patternDurationS)
-            const subKey           = `${stepIndex}-${subPhase.internalType}`
-            if (subKey !== lastWarmupSubPhaseKeyRef.current) {
-              lastWarmupSubPhaseKeyRef.current = subKey
-              breathStore.setPhaseComplete(
-                internalToPublicPhase(subPhase.internalType),
-                subPhase.internalType,
-                subPhase.subDurationS,
-              )
-            }
-            breathStore.setProgress(subPhase.progress)
+            lastStepIdxRef.current = stepIndex
+            stopWarmupClock()
+            startWarmupStepClock(step)
           }
 
           setWarmupDisplay({
@@ -945,7 +841,52 @@ export function FreeTimerPage() {
     // Wake Lock (Android/desktop) + NoSleep vidéo silencieuse (iOS)
     void requestWakeLock()
     noSleepEnable()
-  }, [startTimer, requestWakeLock, noSleepEnable])
+  }, [startTimer, stopWarmupClock, startWarmupStepClock, requestWakeLock, noSleepEnable])
+
+  // ── Recovery post-apnée ─────────────────────────────────────────────────────
+
+  const startRecovery = useCallback((rec: RecoveryStep) => {
+    activeRecoveryRef.current    = rec
+    recoveryStartMsRef.current   = Date.now()
+    recoveryDurationSRef.current = rec.durationS
+
+    const recoveryWarmupStep: WarmupStep = {
+      durationS:   rec.durationS,
+      pattern:     rec.pattern,
+      phaseName:   'Récupération',
+      instruction: rec.instruction || 'Récupérez calmement',
+      type:        'recovery',
+    }
+    stopWarmupClock()
+    startWarmupStepClock(recoveryWarmupStep)
+
+    const tick = () => {
+      if (!mountedRef.current) return
+      const elapsedS  = (Date.now() - recoveryStartMsRef.current) / 1000
+      const remaining = Math.max(0, Math.ceil(rec.durationS - elapsedS))
+      const progress  = Math.min(1, elapsedS / rec.durationS)
+
+      setRecoveryDisplay({ instruction: rec.instruction, remaining, progress })
+
+      if (elapsedS >= rec.durationS) {
+        stopWarmupClock()
+        setRecoveryDisplay(null)
+        setPhase('finished')
+        return
+      }
+      rafRef.current = requestAnimationFrame(tick)
+    }
+    tickFnRef.current = tick
+    rafRef.current = requestAnimationFrame(tick)
+  }, [stopWarmupClock, startWarmupStepClock])
+
+  const skipRecovery = useCallback(() => {
+    if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+    tickFnRef.current = null
+    stopWarmupClock()
+    setRecoveryDisplay(null)
+    setPhase('finished')
+  }, [stopWarmupClock])
 
   const skipWarmupStep = useCallback(() => {
     const protocol = protocolRef.current
@@ -956,11 +897,14 @@ export function FreeTimerPage() {
       if (elapsedS < acc + step.durationS) {
         const remaining = (acc + step.durationS) - elapsedS
         warmupStartMsRef.current -= remaining * 1000
+        // Force re-detection du nouveau step dès le prochain tick
+        lastStepIdxRef.current = -1
+        stopWarmupClock()
         break
       }
       acc += step.durationS
     }
-  }, [])
+  }, [stopWarmupClock])
 
   const stopTimer = useCallback(async () => {
     if (rafRef.current !== null) {
@@ -974,7 +918,6 @@ export function FreeTimerPage() {
     const finalMs   = getElapsed()
     const finalMode = modeRef.current
     setDisplayMs(finalMs)
-    setPhase('finished')
     setIsSaving(true)
     try {
       const session = await saveFreeTimerSession(
@@ -996,7 +939,16 @@ export function FreeTimerPage() {
     } finally {
       if (mountedRef.current) setIsSaving(false)
     }
-  }, [getElapsed, releaseWakeLock, noSleepDisable])
+
+    // Recovery post-apnée si un échauffement custom avec récupération était actif
+    const rec = activeRecoveryRef.current
+    if (rec && rec.durationS > 0 && mountedRef.current) {
+      setPhase('recovery')
+      startRecovery(rec)
+    } else {
+      setPhase('finished')
+    }
+  }, [getElapsed, releaseWakeLock, noSleepDisable, startRecovery])
 
   const recordLap = useCallback(() => {
     const t = getElapsed()
@@ -1018,20 +970,16 @@ export function FreeTimerPage() {
     releaseWakeLock()
     noSleepDisable()
     try { sessionStorage.removeItem('apnea_running') } catch { /* ignore */ }
-    cancelWarmupSound()
-    if (warmupAudioRef.current) { warmupAudioRef.current.close().catch(() => {}); warmupAudioRef.current = null }
-    lastStepIdxRef.current          = -1
-    lastCountdownRef.current        = -1
-    lastWarmupSubPhaseKeyRef.current = ''
-    stepPrepEndAtRef.current         = 0
-    stepPrepDurationSRef.current     = 0
-    useBreathStore.getState().endSession()
+    stopWarmupClock()
+    lastStepIdxRef.current   = -1
+    activeRecoveryRef.current = null
+    setRecoveryDisplay(null)
     setDisplayMs(0)
     setLapsMs([])
     setSavedSession(null)
     lapsRef.current = []
     setPhase('idle')
-  }, [releaseWakeLock, noSleepDisable])
+  }, [releaseWakeLock, noSleepDisable, stopWarmupClock])
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -1052,7 +1000,51 @@ export function FreeTimerPage() {
           onModeChange={setMode}
           warmupSeconds={warmupSeconds}
           onWarmupChange={setWarmupSeconds}
-          onStart={() => mode === 'apnea' ? startWarmup(warmupSeconds) : startTimer()}
+          warmupTab={warmupTab}
+          onWarmupTabChange={setWarmupTab}
+          customWarmups={customWarmups}
+          selectedCustomId={selectedCustomId}
+          onSelectCustom={setSelectedCustomId}
+          onCreateCustom={() => { setEditingWarmup(undefined); setShowEditor(true) }}
+          onEditCustom={(w) => { setEditingWarmup(w); setShowEditor(true) }}
+          onDeleteCustom={async (id) => {
+            await deleteCustomWarmup(id)
+            setCustomWarmups((prev) => prev.filter((w) => w.id !== id))
+            if (selectedCustomId === id) setSelectedCustomId(null)
+          }}
+          onStart={() => {
+            if (mode === 'apnea') {
+              if (warmupTab === 'custom' && selectedCustomId) {
+                const cw = customWarmups.find((w) => w.id === selectedCustomId)
+                if (cw) {
+                  // Mémorise la recovery pour après l'apnée
+                  activeRecoveryRef.current = {
+                    pattern:     cw.recoveryPattern,
+                    durationS:   cw.recoveryDurationS,
+                    instruction: cw.recoveryInstruction,
+                  }
+                  // Construit le protocol en ajoutant la phase GO
+                  const protocol: WarmupProtocol = {
+                    name:  cw.name,
+                    steps: [
+                      ...cw.steps,
+                      { durationS: cw.goDurationS, type: 'go', pattern: 'go', phaseName: '', instruction: 'APNÉE — GO !' },
+                    ],
+                  }
+                  startWarmup(protocol)
+                  return
+                }
+              }
+              // Preset
+              activeRecoveryRef.current = null
+              const protocol = WARMUP_PROTOCOLS[warmupSeconds]
+              if (protocol) startWarmup(protocol)
+              else startTimer()
+            } else {
+              activeRecoveryRef.current = null
+              startTimer()
+            }
+          }}
         />
       )}
       {phase === 'warmup' && (
@@ -1073,6 +1065,12 @@ export function FreeTimerPage() {
           onStop={stopTimer}
         />
       )}
+      {phase === 'recovery' && (
+        <RecoveryView
+          display={recoveryDisplay}
+          onSkip={skipRecovery}
+        />
+      )}
       {phase === 'finished' && (
         <FinishedView
           mode={mode}
@@ -1081,6 +1079,29 @@ export function FreeTimerPage() {
           isSaving={isSaving}
           saved={!!savedSession}
           onReset={resetTimer}
+        />
+      )}
+
+      {/* Éditeur d'échauffement custom — overlay plein écran */}
+      {showEditor && (
+        <CustomWarmupEditor
+          initialWarmup={editingWarmup}
+          onCancel={() => setShowEditor(false)}
+          onSave={async (data) => {
+            const now = new Date().toISOString()
+            const warmup: CustomWarmup = {
+              id:        editingWarmup?.id ?? crypto.randomUUID(),
+              createdAt: editingWarmup?.createdAt ?? now,
+              updatedAt: now,
+              syncedAt:  null,
+              ...data,
+            }
+            await saveCustomWarmup(warmup)
+            setCustomWarmups(await getAllCustomWarmups())
+            setSelectedCustomId(warmup.id)
+            setWarmupTab('custom')
+            setShowEditor(false)
+          }}
         />
       )}
     </PageContainer>
@@ -1114,18 +1135,30 @@ function ModeToggle({ mode, onChange }: { mode: TimerMode; onChange: (m: TimerMo
 // ── Idle view ─────────────────────────────────────────────────────────────────
 
 function IdleView({
-  mode,
-  onModeChange,
-  warmupSeconds,
-  onWarmupChange,
+  mode, onModeChange, warmupSeconds, onWarmupChange,
+  warmupTab, onWarmupTabChange,
+  customWarmups, selectedCustomId, onSelectCustom,
+  onCreateCustom, onEditCustom, onDeleteCustom,
   onStart,
 }: {
-  mode:           TimerMode
-  onModeChange:   (m: TimerMode) => void
-  warmupSeconds:  number
-  onWarmupChange: (s: number) => void
-  onStart:        () => void
+  mode:              TimerMode
+  onModeChange:      (m: TimerMode) => void
+  warmupSeconds:     number
+  onWarmupChange:    (s: number) => void
+  warmupTab:         'presets' | 'custom'
+  onWarmupTabChange: (t: 'presets' | 'custom') => void
+  customWarmups:     CustomWarmup[]
+  selectedCustomId:  string | null
+  onSelectCustom:    (id: string) => void
+  onCreateCustom:    () => void
+  onEditCustom:      (w: CustomWarmup) => void
+  onDeleteCustom:    (id: string) => Promise<void>
+  onStart:           () => void
 }) {
+  const canStart = mode === 'free'
+    || warmupTab === 'presets'
+    || (warmupTab === 'custom' && selectedCustomId !== null)
+
   return (
     <div className="flex flex-col items-center gap-5 pt-4">
       {/* Chrono placeholder */}
@@ -1144,31 +1177,103 @@ function IdleView({
       {/* Mode-specific config */}
       {mode === 'apnea' ? (
         <>
-          {/* Warm-up selector */}
-          <div className="card w-full p-4 space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-wider text-white/60">
-              Échauffement
-            </p>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
-              {WARMUP_PRESETS.map(({ label, value }) => (
+          {/* Warm-up card avec onglets */}
+          <div className="card w-full p-0 overflow-hidden space-y-0">
+            {/* Onglets Presets / Mes échauffements */}
+            <div className="flex border-b border-border">
+              {(['presets', 'custom'] as const).map((tab) => (
                 <button
-                  key={value}
-                  onClick={() => onWarmupChange(value)}
-                  className={`
-                    rounded-xl py-2 text-sm font-medium transition-all active:scale-95
-                    ${warmupSeconds === value
-                      ? 'bg-accent text-text-inverse'
-                      : 'bg-bg-elevated text-white/70 border border-border hover:border-accent/50'
-                    }
-                  `}
+                  key={tab}
+                  onClick={() => onWarmupTabChange(tab)}
+                  className={`flex-1 py-2.5 text-xs font-semibold transition-colors ${
+                    warmupTab === tab
+                      ? 'text-accent border-b-2 border-accent -mb-px'
+                      : 'text-white/40 hover:text-white/70'
+                  }`}
                 >
-                  {label}
+                  {tab === 'presets' ? 'Presets' : 'Mes échauffements'}
                 </button>
               ))}
             </div>
-            <p className="text-xs text-white/50 text-center min-h-[1rem]">
-              {`Respirez calmement pendant ${WARMUP_PRESETS.find((p) => p.value === warmupSeconds)?.label ?? `${warmupSeconds / 60} min`} avant l'apnée`}
-            </p>
+
+            <div className="p-4">
+              {warmupTab === 'presets' ? (
+                <div className="space-y-3">
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
+                    {WARMUP_PRESETS.map(({ label, value }) => (
+                      <button
+                        key={value}
+                        onClick={() => onWarmupChange(value)}
+                        className={`
+                          rounded-xl py-2 text-sm font-medium transition-all active:scale-95
+                          ${warmupSeconds === value
+                            ? 'bg-accent text-text-inverse'
+                            : 'bg-bg-elevated text-white/70 border border-border hover:border-accent/50'
+                          }
+                        `}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-white/50 text-center">
+                    {WARMUP_PROTOCOLS[warmupSeconds]?.name ?? ''}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {customWarmups.length === 0 ? (
+                    <p className="text-xs text-white/40 text-center py-2">
+                      Aucun échauffement — crée le tien ci-dessous
+                    </p>
+                  ) : (
+                    customWarmups.map((w) => {
+                      const totalS = w.steps.reduce((s, step) => s + step.durationS, 0) + w.goDurationS
+                      const m = Math.floor(totalS / 60)
+                      const s = totalS % 60
+                      const durLabel = s === 0 ? `${m} min` : `${m}′${String(s).padStart(2, '0')}`
+                      return (
+                        <div
+                          key={w.id}
+                          onClick={() => onSelectCustom(w.id)}
+                          className={`flex items-center gap-2 rounded-xl px-3 py-2.5 cursor-pointer transition-all ${
+                            selectedCustomId === w.id
+                              ? 'bg-accent/15 border border-accent/40'
+                              : 'bg-bg-elevated border border-border hover:border-accent/30'
+                          }`}
+                        >
+                          <span className={`flex-1 text-sm font-medium truncate ${
+                            selectedCustomId === w.id ? 'text-accent' : 'text-text-primary'
+                          }`}>
+                            {w.name}
+                          </span>
+                          <span className="text-xs text-white/40 shrink-0">{durLabel}</span>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onEditCustom(w) }}
+                            className="p-1 text-white/30 hover:text-white/70 transition-colors"
+                          >
+                            <Pencil size={11} />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); void onDeleteCustom(w.id) }}
+                            className="p-1 text-white/30 hover:text-status-error transition-colors"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      )
+                    })
+                  )}
+                  <button
+                    onClick={onCreateCustom}
+                    className="flex items-center gap-2 w-full justify-center rounded-xl border border-dashed border-border py-2 text-xs text-white/40 hover:border-accent/50 hover:text-accent transition-colors"
+                  >
+                    <Plus size={12} />
+                    Créer un échauffement
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="card w-full p-4 space-y-2 text-center">
@@ -1193,10 +1298,65 @@ function IdleView({
 
       <button
         onClick={onStart}
-        className="flex items-center gap-3 w-full justify-center rounded-2xl bg-accent py-5 text-lg font-semibold text-text-inverse hover:opacity-90 active:scale-95 transition-all"
+        disabled={!canStart}
+        className="flex items-center gap-3 w-full justify-center rounded-2xl bg-accent py-5 text-lg font-semibold text-text-inverse hover:opacity-90 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
       >
         <Play size={22} />
         {mode === 'apnea' ? "Démarrer l'échauffement" : 'Démarrer'}
+      </button>
+    </div>
+  )
+}
+
+// ── Recovery view ─────────────────────────────────────────────────────────────
+
+function RecoveryView({
+  display,
+  onSkip,
+}: {
+  display: { instruction: string; remaining: number; progress: number } | null
+  onSkip: () => void
+}) {
+  const rem = display?.remaining ?? 0
+  const remLabel = rem >= 60
+    ? `${Math.floor(rem / 60)}:${String(rem % 60).padStart(2, '0')}`
+    : `${rem}s`
+
+  return (
+    <div className="flex flex-col gap-4 pt-8">
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem' }}>
+        <span style={{ fontSize: '1.4rem', fontWeight: 700, color: '#34d399', letterSpacing: '0.03em' }}>
+          Récupération
+        </span>
+      </div>
+
+      <div className="card p-5 text-center" style={{ borderColor: '#34d39930' }}>
+        <p style={{ fontSize: '1.15rem', fontWeight: 500, lineHeight: 1.5, color: 'var(--color-text-primary)' }}>
+          {display?.instruction ?? 'Récupérez calmement'}
+        </p>
+      </div>
+
+      <div className="flex justify-center py-2">
+        <BreathCircle />
+      </div>
+
+      <div className="text-center">
+        <p style={{ fontFamily: 'monospace', fontSize: '3.5rem', fontWeight: 100, color: '#34d399' }}>
+          {remLabel}
+        </p>
+        <p style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.35)', marginTop: '0.25rem' }}>
+          récupération post-apnée
+        </p>
+        <div style={{ marginTop: '0.5rem', height: '3px', background: 'rgba(255,255,255,0.08)', borderRadius: '999px', overflow: 'hidden' }}>
+          <div style={{ height: '100%', borderRadius: '999px', background: '#34d399', width: `${(display?.progress ?? 0) * 100}%` }} />
+        </div>
+      </div>
+
+      <button
+        onClick={onSkip}
+        className="flex items-center gap-2 w-full justify-center rounded-2xl border border-border py-3 text-sm text-white/60 hover:bg-bg-elevated active:scale-95 transition-all"
+      >
+        Passer la récupération →
       </button>
     </div>
   )

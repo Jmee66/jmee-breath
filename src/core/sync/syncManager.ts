@@ -2,6 +2,7 @@ import { db, type SyncQueueEntry } from '../db/apneaDb'
 import { supabase } from '../supabase/client'
 import { eventBus } from '../events/eventBus'
 import type { Exercise, Session, FreeTimerSession } from '../types'
+import type { CustomWarmup } from '@modules/free-timer/types'
 
 const MAX_RETRIES = 5
 const BATCH_SIZE = 50
@@ -97,6 +98,8 @@ class SyncManager {
         await db.sessions.update(entry.recordId, { syncedAt: now })
       } else if (entry.table === 'free_timer_sessions') {
         await db.freeTimerSessions.update(entry.recordId, { syncedAt: now })
+      } else if (entry.table === 'custom_warmups') {
+        await db.customWarmups.update(entry.recordId, { syncedAt: now })
       }
 
       eventBus.emit('SYNC_COMPLETED', {
@@ -167,6 +170,16 @@ class SyncManager {
         await db.freeTimerSessions.put(mapRemoteFreeTimerSession(s))
       }
       eventBus.emit('SYNC_COMPLETED', { table: 'free_timer_sessions', pushed: 0, pulled: remoteFts.length })
+    }
+
+    // Pull custom warmups
+    const { data: remoteWarmups } = await supabase
+      .from('custom_warmups').select('*').eq('user_id', this.userId)
+    if (remoteWarmups?.length) {
+      for (const w of remoteWarmups) {
+        await db.customWarmups.put(mapRemoteCustomWarmup(w))
+      }
+      eventBus.emit('SYNC_COMPLETED', { table: 'custom_warmups', pushed: 0, pulled: remoteWarmups.length })
     }
   }
 
@@ -253,6 +266,28 @@ class SyncManager {
       }
       pulled += remoteFts.length
       eventBus.emit('SYNC_COMPLETED', { table: 'free_timer_sessions', pushed: 0, pulled: remoteFts.length })
+    }
+
+    // ── 8. Push custom warmups ───────────────────────────────────────────────
+    const localWarmups = await db.customWarmups.toArray()
+    if (localWarmups.length) {
+      const payloads = localWarmups.map((w) => customWarmupToSupabase(w, uid))
+      const { error } = await supabase.from('custom_warmups').upsert(payloads)
+      if (!error) {
+        pushed += localWarmups.length
+        await db.customWarmups.toCollection().modify({ syncedAt: new Date().toISOString() })
+      }
+    }
+
+    // ── 9. Pull complet custom_warmups ───────────────────────────────────────
+    const { data: remoteWarmups } = await supabase
+      .from('custom_warmups').select('*').eq('user_id', uid)
+    if (remoteWarmups?.length) {
+      for (const w of remoteWarmups) {
+        await db.customWarmups.put(mapRemoteCustomWarmup(w))
+      }
+      pulled += remoteWarmups.length
+      eventBus.emit('SYNC_COMPLETED', { table: 'custom_warmups', pushed: 0, pulled: remoteWarmups.length })
     }
 
     return { pushed, pulled }
@@ -352,6 +387,37 @@ function ftsToSupabase(s: FreeTimerSession, userId: string): Record<string, unkn
     laps:             s.laps,
     notes:            s.notes,
     mode:             s.mode,
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapRemoteCustomWarmup(r: any): CustomWarmup {
+  return {
+    id:                  r.id,
+    name:                r.name,
+    steps:               r.steps ?? [],
+    goDurationS:         r.go_duration_s ?? 3,
+    recoveryPattern:     r.recovery_pattern ?? 'soupir',
+    recoveryDurationS:   r.recovery_duration_s ?? 60,
+    recoveryInstruction: r.recovery_instruction ?? '',
+    createdAt:           r.created_at,
+    updatedAt:           r.updated_at,
+    syncedAt:            new Date().toISOString(),
+  }
+}
+
+function customWarmupToSupabase(w: CustomWarmup, userId: string): Record<string, unknown> {
+  return {
+    id:                   w.id,
+    user_id:              userId,
+    name:                 w.name,
+    steps:                w.steps,
+    go_duration_s:        w.goDurationS,
+    recovery_pattern:     w.recoveryPattern,
+    recovery_duration_s:  w.recoveryDurationS,
+    recovery_instruction: w.recoveryInstruction,
+    created_at:           w.createdAt,
+    updated_at:           w.updatedAt,
   }
 }
 

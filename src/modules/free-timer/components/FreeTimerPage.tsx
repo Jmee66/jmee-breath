@@ -36,14 +36,16 @@ type WarmupStepType = 'breathe' | 'hold' | 'recovery' | 'inhale' | 'exhale' | 'c
  * Explicite — évite tout heuristique sur le type ou le texte.
  */
 type WarmupBreathPattern =
-  | 'soupir'      // Soupir cyclique : 3 s inspir + 7 s expir
-  | '6-6-12'      // Cohérence cardiaque : 6 s inhale + 6 s hold + 12 s exhale
-  | 'hold-full'   // Rétention poumons pleins (statique, grand cercle)
-  | 'hold-empty'  // Rétention poumons vides / FRC (statique, petit cercle)
-  | 'inhale'      // Inspiration progressive sur toute la durée
-  | 'exhale'      // Expiration progressive sur toute la durée
-  | 'co2'         // Ocean Breath 4-8-16-4
-  | 'go'          // Décompte final
+  | 'soupir'           // Soupir simple : 3 s inspir + 7 s expir
+  | 'soupir-cyclique'  // Double inspir : 4 s inspir + 2 s top-up + 10 s expir = 16 s cycle
+  | '6-6-12'           // Cohérence cardiaque : 6 s inhale + 6 s hold + 12 s exhale
+  | 'hold-full'        // Rétention poumons pleins (statique, grand cercle)
+  | 'hold-empty'       // Rétention poumons vides / FRC (statique, petit cercle)
+  | 'inhale'           // Inspiration progressive sur toute la durée
+  | 'exhale'           // Expiration progressive sur toute la durée
+  | 'co2'              // Ocean Breath 4-8-16-4
+  | 'countdown'        // Cercle plein → vide sur la durée (compte à rebours visuel)
+  | 'go'               // Décompte final
 
 interface WarmupStep {
   durationS:   number
@@ -122,11 +124,12 @@ const WARMUP_PRESETS = [
 // ── Warmup protocols ──────────────────────────────────────────────────────────
 
 const WARMUP_PROTOCOLS: Record<number, WarmupProtocol> = {
-  60: { name: "L'EXPRESS", steps: [
-    { durationS: 40, type: 'breathe',  pattern: 'soupir',     phaseName: 'Phase 1',        instruction: 'Soupir Cyclique : Inspir · Inspir · Soupir lent' },
-    { durationS: 10, type: 'inhale',   pattern: 'inhale',     phaseName: 'Zoom',            instruction: 'Inspiration lente et profonde (Ventre · Côtes)' },
-    { durationS: 10, type: 'hold',     pattern: 'hold-full',  phaseName: 'Zoom',            instruction: 'Blocage final · Relâchement total des épaules' },
-    { durationS: 2,  type: 'go',       pattern: 'go',         phaseName: '',                instruction: 'APNÉE — GO !' },
+  60: { name: '1 MIN', steps: [
+    { durationS: 40, type: 'breathe', pattern: 'soupir-cyclique', phaseName: 'Phase 1',  instruction: 'Soupir Cyclique : Inspir · Inspir · Soupir lent' },
+    { durationS: 6,  type: 'inhale',  pattern: 'inhale',          phaseName: 'Phase 2',  instruction: 'Inspiration lente : Ventre · Côtes · Thorax' },
+    { durationS: 6,  type: 'exhale',  pattern: 'exhale',          phaseName: 'Phase 2',  instruction: 'Expiration douce : Thorax · Côtes · Ventre' },
+    { durationS: 8,  type: 'hold',    pattern: 'countdown',       phaseName: 'Compte',   instruction: 'Retiens · Apnée dans...' },
+    { durationS: 2,  type: 'go',      pattern: 'go',              phaseName: '',         instruction: 'APNÉE — GO !' },
   ]},
   120: { name: 'LE FLASH', steps: [
     { durationS: 100, type: 'breathe', pattern: '6-6-12',     phaseName: 'Phase 1',         instruction: 'Respiration 6-6-12 : Focus Lenteur' },
@@ -216,11 +219,20 @@ function getWarmupSubPhase(
   switch (pattern) {
 
     case 'soupir': {
-      // Soupir cyclique : 3 s inspir rapide + 7 s expir lent = 10 s
+      // Soupir simple : 3 s inspir + 7 s expir = 10 s cycle
       const INHALE = 3, EXHALE = 7, CYCLE = 10
       const pos = stepElapsedS % CYCLE
-      if (pos < INHALE) return { internalType: 'inhale', progress: pos / INHALE,           subDurationS: INHALE }
-      return               { internalType: 'exhale', progress: (pos - INHALE) / EXHALE,   subDurationS: EXHALE }
+      if (pos < INHALE) return { internalType: 'inhale', progress: pos / INHALE,         subDurationS: INHALE }
+      return               { internalType: 'exhale', progress: (pos - INHALE) / EXHALE, subDurationS: EXHALE }
+    }
+
+    case 'soupir-cyclique': {
+      // Double inspir : 4 s inspir lent + 2 s top-up + 10 s expir lent = 16 s cycle
+      // Le cercle montre une inspiration fluide sur 6 s puis une expiration sur 10 s
+      const INHALE = 6, EXHALE = 10, CYCLE = 16
+      const pos = stepElapsedS % CYCLE
+      if (pos < INHALE) return { internalType: 'inhale', progress: pos / INHALE,         subDurationS: INHALE }
+      return               { internalType: 'exhale', progress: (pos - INHALE) / EXHALE, subDurationS: EXHALE }
     }
 
     case '6-6-12': {
@@ -262,6 +274,14 @@ function getWarmupSubPhase(
 
     case 'exhale':
       return { internalType: 'exhale', progress: Math.min(stepElapsedS / stepDurationS, 1), subDurationS: stepDurationS }
+
+    case 'countdown':
+      // Cercle plein qui se vide au fil du temps — représente le compte à rebours
+      return {
+        internalType: 'hold-full',
+        progress: Math.max(0.15, 1 - stepElapsedS / stepDurationS),
+        subDurationS: stepDurationS,
+      }
 
     case 'go':
       return { internalType: 'hold-full', progress: 1, subDurationS: 2 }

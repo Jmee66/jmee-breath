@@ -27,7 +27,7 @@ import { CustomWarmupEditor } from './CustomWarmupEditor'
 import { useNoSleep } from '@utils/useNoSleep'
 import type { FreeTimerSession } from '@core/types'
 import type { Exercise, Phase } from '@core/types'
-import type { WarmupStep, WarmupProtocol, WarmupDisplay, WarmupBreathPattern, WarmupStepType, CustomWarmup } from '../types'
+import type { WarmupStep, WarmupProtocol, WarmupDisplay, WarmupBreathPattern, WarmupStepType, CustomWarmup, CustomWarmupStep, CustomCycle } from '../types'
 
 // ── Types locaux ───────────────────────────────────────────────────────────────
 
@@ -219,12 +219,30 @@ function patternToPhases(pattern: WarmupBreathPattern, durationS: number): Phase
   }
 }
 
-/** Construit un Exercise minimal à partir d'un WarmupStep pour le BreathClock. */
-function patternToExercise(step: WarmupStep): Exercise {
-  const phases  = patternToPhases(step.pattern, step.durationS)
+/** Convertit un CustomCycle en tableau de phases Exercise. */
+function customCycleToPhases(c: CustomCycle): Phase[] {
+  const phases: Phase[] = []
+  if (c.inhale    > 0) phases.push({ type: 'inhale',   durationSeconds: c.inhale    })
+  if (c.hold      > 0) phases.push({ type: 'hold',     durationSeconds: c.hold      })
+  if (c.exhale    > 0) phases.push({ type: 'exhale',   durationSeconds: c.exhale    })
+  if (c.holdEmpty > 0) phases.push({ type: 'hold',     durationSeconds: c.holdEmpty, label: 'Vide' })
+  return phases
+}
+
+/** Construit un Exercise minimal à partir d'un WarmupStep (ou CustomWarmupStep) pour le BreathClock. */
+function patternToExercise(step: WarmupStep | CustomWarmupStep): Exercise {
+  // Mode libre : cycle personnalisé
+  const isLibre = 'mode' in step && step.mode === 'libre' && step.customCycle
+  const phases  = isLibre
+    ? customCycleToPhases((step as CustomWarmupStep).customCycle!)
+    : patternToPhases(step.pattern, step.durationS)
+
   const cycleS  = phases.reduce((s, p) => s + p.durationSeconds, 0)
-  const isLoop  = ['soupir', 'soupir-cyclique', '6-6-12', 'co2'].includes(step.pattern)
-  const reps    = isLoop ? Math.max(1, Math.ceil(step.durationS / cycleS) + 1) : 1
+  const isLoop  = isLibre
+    ? phases.length > 1
+    : ['soupir', 'soupir-cyclique', '6-6-12', 'co2'].includes(step.pattern)
+  const reps    = isLoop && cycleS > 0 ? Math.max(1, Math.ceil(step.durationS / cycleS) + 1) : 1
+
   return {
     id:                     `warmup-${step.pattern}`,
     name:                   step.instruction,

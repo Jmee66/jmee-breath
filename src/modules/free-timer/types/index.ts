@@ -13,6 +13,7 @@ export type WarmupBreathPattern =
   | 'co2'              // Ocean Breath 4-8-16-4 = 32s cycle
   | 'countdown'        // Compte à rebours hold-full
   | 'go'               // Flash GO
+  | 'custom'           // Cycle libre défini par l'utilisateur
 
 export interface WarmupStep {
   durationS:   number
@@ -40,10 +41,28 @@ export interface WarmupDisplay {
 
 // ── Custom warmup ──────────────────────────────────────────────────────────────
 
+/**
+ * Cycle respiratoire personnalisé (mode "libre").
+ * Les valeurs à 0 signifient que la phase est absente.
+ * Toutes les durées sont en secondes avec précision 0.5s.
+ */
+export interface CustomCycle {
+  inhale:    number   // min 0.5
+  hold:      number   // 0 = absent
+  exhale:    number   // min 0.5
+  holdEmpty: number   // 0 = absent (apnée vide)
+}
+
 export interface CustomWarmupStep {
   /** UUID stable pour React keys et édition */
   id:          string
+  /** 'ratio' = pattern prédéfini · 'libre' = cycle personnalisé */
+  mode:        'ratio' | 'libre'
+  /** Utilisé quand mode === 'ratio' */
   pattern:     WarmupBreathPattern
+  /** Utilisé quand mode === 'libre' */
+  customCycle?: CustomCycle
+  /** Durée totale de l'étape en secondes (précision 0.5s) */
   durationS:   number
   phaseName:   string
   instruction: string

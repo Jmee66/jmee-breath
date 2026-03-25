@@ -229,38 +229,71 @@ function StepRow({
   onMoveUp:   () => void
   onMoveDown: () => void
 }) {
-  const isLibre = step.mode === 'libre'
-  const cycle   = step.customCycle ?? DEFAULT_CYCLE
+  const isLibre   = step.mode === 'libre'
+  const cycle     = step.customCycle ?? DEFAULT_CYCLE
+  const ratioInfo = isLibre ? null : (PATTERN_CATALOGUE[step.pattern as Exclude<WarmupBreathPattern, 'go' | 'custom'>] ?? null)
 
-  // Cycle hint (ratio mode)
-  const ratioInfo   = isLibre ? null : PATTERN_CATALOGUE[step.pattern as Exclude<WarmupBreathPattern, 'go' | 'custom'>] ?? null
-  const cycleHint   = !isLibre && ratioInfo?.cycleS
-    ? `${Math.ceil(step.durationS / ratioInfo.cycleS)} cycle${Math.ceil(step.durationS / ratioInfo.cycleS) > 1 ? 's' : ''}`
+  // Durée d'un cycle selon le mode
+  const effectiveCycleS: number | null = isLibre
+    ? (cycleSeconds(cycle) > 0 ? cycleSeconds(cycle) : null)
+    : (ratioInfo?.cycleS ?? null)
+
+  const isCyclic = effectiveCycleS !== null && effectiveCycleS > 0
+
+  // Nombre de cycles courant (dérivé de durationS)
+  const nCycles = isCyclic
+    ? Math.max(1, Math.round(step.durationS / effectiveCycleS!))
     : null
 
-  // Cycle hint (libre mode)
-  const libCycleS   = isLibre ? cycleSeconds(cycle) : 0
-  const libNCycles  = libCycleS > 0 ? Math.ceil(step.durationS / libCycleS) : 0
+  // Changer le nombre de cycles → recalcule durationS
+  function handleNCycles(n: number) {
+    const clamped = Math.max(1, Math.min(999, Math.round(n)))
+    onChange({ ...step, durationS: snap(clamped * effectiveCycleS!) })
+  }
 
+  // Changer le pattern (ratio) → préserve nCycles si le nouveau pattern est aussi cyclique
+  function handlePatternChange(p: Exclude<WarmupBreathPattern, 'go' | 'custom'>) {
+    const info    = PATTERN_CATALOGUE[p]
+    const newCycS = info.cycleS
+    const newDur  = newCycS && nCycles
+      ? snap(nCycles * newCycS)
+      : snap(info.defaultDuration)
+    onChange({ ...step, pattern: p, type: info.type, durationS: newDur })
+  }
+
+  // Changer les phases libres → préserve nCycles, recalcule durationS
+  function handleCycleChange(c: CustomCycle) {
+    const newCycleS = cycleSeconds(c)
+    const newDur    = newCycleS > 0 && nCycles
+      ? snap(nCycles * newCycleS)
+      : step.durationS
+    onChange({ ...step, customCycle: c, durationS: newDur })
+  }
+
+  // Basculer mode ratio ↔ libre
   function switchMode(mode: 'ratio' | 'libre') {
     if (mode === 'libre') {
-      const base = ratioInfo?.defaultCycle ?? DEFAULT_CYCLE
-      onChange({ ...step, mode: 'libre', customCycle: base, pattern: 'custom', type: 'breathe' })
+      const base   = ratioInfo?.defaultCycle ?? DEFAULT_CYCLE
+      const cycS   = cycleSeconds(base)
+      const newDur = cycS > 0 && nCycles ? snap(nCycles * cycS) : snap(cycS * 3)
+      onChange({ ...step, mode: 'libre', customCycle: base, pattern: 'custom', type: 'breathe', durationS: newDur })
     } else {
-      onChange({ ...step, mode: 'ratio', customCycle: undefined, pattern: 'soupir', type: 'breathe' })
+      const def    = PATTERN_CATALOGUE['soupir']
+      const newDur = def.cycleS && nCycles ? snap(nCycles * def.cycleS) : snap(def.defaultDuration)
+      onChange({ ...step, mode: 'ratio', customCycle: undefined, pattern: 'soupir', type: 'breathe', durationS: newDur })
     }
   }
 
   return (
     <div className="rounded-xl bg-bg-elevated border border-border p-3 space-y-2.5">
 
-      {/* ── Ligne 1 : reorder · mode toggle · durée totale · supprimer ── */}
+      {/* ── Ligne 1 : reorder · mode toggle · cycles/durée · supprimer ── */}
       <div className="flex items-center gap-2">
 
         {/* Reorder */}
         <div className="flex flex-col gap-0.5 shrink-0">
-          <button onClick={onMoveUp}   disabled={index === 0}          className="p-0.5 text-white/30 hover:text-white/70 disabled:opacity-20"><ChevronUp size={12} /></button>
-          <button onClick={onMoveDown} disabled={index === total - 1}   className="p-0.5 text-white/30 hover:text-white/70 disabled:opacity-20"><ChevronDown size={12} /></button>
+          <button onClick={onMoveUp}   disabled={index === 0}         className="p-0.5 text-white/30 hover:text-white/70 disabled:opacity-20"><ChevronUp size={12} /></button>
+          <button onClick={onMoveDown} disabled={index === total - 1} className="p-0.5 text-white/30 hover:text-white/70 disabled:opacity-20"><ChevronDown size={12} /></button>
         </div>
 
         {/* Mode toggle */}
@@ -270,9 +303,7 @@ function StepRow({
               key={m}
               onClick={() => switchMode(m)}
               className={`px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors ${
-                step.mode === m
-                  ? 'bg-accent text-white'
-                  : 'bg-bg-overlay text-white/40 hover:text-white/70'
+                step.mode === m ? 'bg-accent text-white' : 'bg-bg-overlay text-white/40 hover:text-white/70'
               }`}
             >
               {m === 'ratio' ? 'Ratio' : 'Libre'}
@@ -280,29 +311,57 @@ function StepRow({
           ))}
         </div>
 
-        {/* Durée totale */}
+        {/* Cycles (patterns cycliques) ou durée (phases uniques) */}
         <div className="flex items-center gap-1 ml-auto shrink-0">
-          <button
-            onClick={() => onChange({ ...step, durationS: snap(step.durationS - 0.5) })}
-            className="h-7 w-7 flex items-center justify-center rounded-lg bg-bg-overlay text-white/70 hover:bg-bg-overlay/80 active:scale-95 text-xs font-bold"
-          >−</button>
-          <input
-            type="number"
-            min={0.5}
-            max={3600}
-            step={0.5}
-            value={step.durationS}
-            onChange={(e) => {
-              const v = parseFloat(e.target.value)
-              if (!isNaN(v)) onChange({ ...step, durationS: snap(v) })
-            }}
-            className="w-12 text-center text-xs font-mono bg-transparent text-text-primary outline-none border-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
-          />
-          <span className="text-[11px] text-white/40">s</span>
-          <button
-            onClick={() => onChange({ ...step, durationS: snap(step.durationS + 0.5) })}
-            className="h-7 w-7 flex items-center justify-center rounded-lg bg-bg-overlay text-white/70 hover:bg-bg-overlay/80 active:scale-95 text-xs font-bold"
-          >+</button>
+          {isCyclic ? (
+            <>
+              <button
+                onClick={() => handleNCycles((nCycles ?? 1) - 1)}
+                disabled={(nCycles ?? 1) <= 1}
+                className="h-7 w-7 flex items-center justify-center rounded-lg bg-bg-overlay text-white/70 hover:bg-bg-overlay/80 active:scale-95 disabled:opacity-20 text-xs font-bold"
+              >−</button>
+              <input
+                type="number"
+                min={1}
+                max={999}
+                value={nCycles ?? 1}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value)
+                  if (!isNaN(v)) handleNCycles(v)
+                }}
+                className="w-10 text-center text-xs font-mono bg-transparent text-text-primary outline-none border-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+              />
+              <span className="text-[11px] text-white/40">×</span>
+              <button
+                onClick={() => handleNCycles((nCycles ?? 1) + 1)}
+                className="h-7 w-7 flex items-center justify-center rounded-lg bg-bg-overlay text-white/70 hover:bg-bg-overlay/80 active:scale-95 text-xs font-bold"
+              >+</button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => onChange({ ...step, durationS: snap(step.durationS - 0.5) })}
+                className="h-7 w-7 flex items-center justify-center rounded-lg bg-bg-overlay text-white/70 hover:bg-bg-overlay/80 active:scale-95 text-xs font-bold"
+              >−</button>
+              <input
+                type="number"
+                min={0.5}
+                max={3600}
+                step={0.5}
+                value={step.durationS}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value)
+                  if (!isNaN(v)) onChange({ ...step, durationS: snap(v) })
+                }}
+                className="w-12 text-center text-xs font-mono bg-transparent text-text-primary outline-none border-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+              />
+              <span className="text-[11px] text-white/40">s</span>
+              <button
+                onClick={() => onChange({ ...step, durationS: snap(step.durationS + 0.5) })}
+                className="h-7 w-7 flex items-center justify-center rounded-lg bg-bg-overlay text-white/70 hover:bg-bg-overlay/80 active:scale-95 text-xs font-bold"
+              >+</button>
+            </>
+          )}
         </div>
 
         {/* Supprimer */}
@@ -313,38 +372,30 @@ function StepRow({
         ><X size={13} /></button>
       </div>
 
+      {/* Durée totale si mode cycles */}
+      {isCyclic && effectiveCycleS && (
+        <p className="pl-12 text-[10px] text-white/25 -mt-1">
+          {nCycles} × {formatDur(effectiveCycleS)} = {formatDur(step.durationS)}
+        </p>
+      )}
+
       {/* ── Ligne 2 : contenu selon mode ── */}
       {isLibre ? (
-        <>
-          <LibrePhaseEditor
-            cycle={cycle}
-            onChange={(c) => onChange({ ...step, customCycle: c })}
-          />
-          {libNCycles > 0 && (
-            <p className="pl-6 text-[10px] text-white/25">
-              ≈ {libNCycles} cycle{libNCycles > 1 ? 's' : ''} sur {formatDur(step.durationS)}
-            </p>
-          )}
-        </>
+        <LibrePhaseEditor
+          cycle={cycle}
+          onChange={handleCycleChange}
+        />
       ) : (
         <div className="flex items-center gap-2 pl-6">
           <select
             value={step.pattern}
-            onChange={(e) => {
-              const p = e.target.value as Exclude<WarmupBreathPattern, 'go' | 'custom'>
-              onChange({ ...step, pattern: p, type: PATTERN_CATALOGUE[p]?.type ?? 'breathe' })
-            }}
+            onChange={(e) => handlePatternChange(e.target.value as Exclude<WarmupBreathPattern, 'go' | 'custom'>)}
             className="flex-1 min-w-0 rounded-lg bg-bg-overlay border border-border px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent"
           >
             {PATTERN_OPTIONS.map((p) => (
-              <option key={p} value={p} className="bg-bg-elevated">
-                {PATTERN_CATALOGUE[p].label}
-              </option>
+              <option key={p} value={p} className="bg-bg-elevated">{PATTERN_CATALOGUE[p].label}</option>
             ))}
           </select>
-          {cycleHint && (
-            <span className="text-[10px] text-white/30 shrink-0">{cycleHint}</span>
-          )}
         </div>
       )}
 

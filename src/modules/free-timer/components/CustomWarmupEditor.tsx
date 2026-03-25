@@ -61,51 +61,71 @@ function formatTotalDuration(steps: CustomWarmupStep[], goDurationS: number): st
   return s === 0 ? `${m} min` : `${m} min ${sStr}`
 }
 
-// ── Micro-stepper 0,5 s ───────────────────────────────────────────────────────
+// ── Ligne de phase uniforme (mode Libre) ─────────────────────────────────────
+// Toutes les lignes partagent la même grille :
+//   [zone label w-20] [− w-6] [input w-12] [s] [+ w-6]
+// Pour les phases optionnelles, le label est un bouton toggle.
 
-function HalfStepper({
+function PhaseRow({
+  label,
   value,
   onChange,
-  min = 0.5,
-  max = 3600,
-  label,
-  dimmed = false,
+  optional = false,
+  active    = true,
+  onToggle,
 }: {
-  value:    number
-  onChange: (v: number) => void
-  min?:     number
-  max?:     number
-  label?:   string
-  dimmed?:  boolean
+  label:     string
+  value:     number
+  onChange:  (v: number) => void
+  optional?: boolean
+  active?:   boolean
+  onToggle?: () => void
 }) {
   return (
-    <div className={`flex items-center gap-1 transition-opacity ${dimmed ? 'opacity-30' : ''}`}>
-      {label && (
-        <span className="w-20 shrink-0 text-[11px] text-white/60">{label}</span>
+    <div className="flex items-center gap-2">
+      {/* Label / toggle — largeur fixe pour aligner toutes les colonnes */}
+      {optional ? (
+        <button
+          onClick={onToggle}
+          className={`w-20 shrink-0 text-left text-[11px] leading-none transition-colors ${
+            active ? 'text-white/60' : 'text-white/30 italic'
+          }`}
+        >
+          {active ? label : `+ ${label}`}
+        </button>
+      ) : (
+        <span className="w-20 shrink-0 text-[11px] leading-none text-white/60">{label}</span>
       )}
-      <button
-        onClick={() => onChange(snap(value - 0.5, min))}
-        disabled={value <= min}
-        className="h-6 w-6 flex items-center justify-center rounded-md bg-bg-overlay text-white/60 hover:text-white hover:bg-bg-overlay/80 active:scale-95 disabled:opacity-20 transition-all text-sm font-bold"
-      >−</button>
-      <input
-        type="number"
-        min={min}
-        max={max}
-        step={0.5}
-        value={value}
-        onChange={(e) => {
-          const v = parseFloat(e.target.value)
-          if (!isNaN(v)) onChange(snap(v, min))
-        }}
-        className="w-12 text-center text-xs font-mono bg-transparent text-text-primary outline-none border-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
-      />
-      <span className="text-[11px] text-white/40">s</span>
-      <button
-        onClick={() => onChange(snap(value + 0.5, min))}
-        disabled={value >= max}
-        className="h-6 w-6 flex items-center justify-center rounded-md bg-bg-overlay text-white/60 hover:text-white hover:bg-bg-overlay/80 active:scale-95 disabled:opacity-20 transition-all text-sm font-bold"
-      >+</button>
+
+      {/* Contrôles — toujours à la même position horizontale */}
+      {active ? (
+        <>
+          <button
+            onClick={() => onChange(snap(value - 0.5, 0.5))}
+            disabled={value <= 0.5}
+            className="h-6 w-6 flex items-center justify-center rounded-md bg-bg-overlay text-white/60 hover:text-white hover:bg-bg-overlay/80 active:scale-95 disabled:opacity-20 transition-all text-sm font-bold shrink-0"
+          >−</button>
+          <input
+            type="number"
+            min={0.5}
+            max={3600}
+            step={0.5}
+            value={value}
+            onChange={(e) => {
+              const v = parseFloat(e.target.value)
+              if (!isNaN(v)) onChange(snap(v, 0.5))
+            }}
+            className="w-12 text-center text-xs font-mono bg-transparent text-text-primary outline-none border-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+          />
+          <span className="text-[11px] text-white/40">s</span>
+          <button
+            onClick={() => onChange(snap(value + 0.5, 0.5))}
+            className="h-6 w-6 flex items-center justify-center rounded-md bg-bg-overlay text-white/60 hover:text-white hover:bg-bg-overlay/80 active:scale-95 transition-all text-sm font-bold shrink-0"
+          >+</button>
+        </>
+      ) : (
+        <span className="text-[11px] text-white/20">—</span>
+      )}
     </div>
   )
 }
@@ -156,68 +176,39 @@ function LibrePhaseEditor({
   cycle:    CustomCycle
   onChange: (c: CustomCycle) => void
 }) {
-  const totalS   = cycleSeconds(cycle)
-  const hasHold  = cycle.hold      > 0
-  const hasVide  = cycle.holdEmpty > 0
+  const totalS = cycleSeconds(cycle)
 
   return (
-    <div className="space-y-2 pl-6 pt-1">
-      {/* Phase grid */}
-      <div className="space-y-1.5">
-        {/* Inspir */}
-        <HalfStepper
-          label="Inspir"
-          value={cycle.inhale || 0.5}
-          onChange={(v) => onChange({ ...cycle, inhale: v })}
-          min={0.5}
-        />
+    <div className="space-y-1.5 pl-6 pt-1">
+      <PhaseRow
+        label="Inspir"
+        value={cycle.inhale || 0.5}
+        onChange={(v) => onChange({ ...cycle, inhale: v })}
+      />
+      <PhaseRow
+        label="Rétention"
+        value={cycle.hold || 4}
+        onChange={(v) => onChange({ ...cycle, hold: v })}
+        optional
+        active={cycle.hold > 0}
+        onToggle={() => onChange({ ...cycle, hold: cycle.hold > 0 ? 0 : 4 })}
+      />
+      <PhaseRow
+        label="Expir"
+        value={cycle.exhale || 0.5}
+        onChange={(v) => onChange({ ...cycle, exhale: v })}
+      />
+      <PhaseRow
+        label="Vide"
+        value={cycle.holdEmpty || 4}
+        onChange={(v) => onChange({ ...cycle, holdEmpty: v })}
+        optional
+        active={cycle.holdEmpty > 0}
+        onToggle={() => onChange({ ...cycle, holdEmpty: cycle.holdEmpty > 0 ? 0 : 4 })}
+      />
 
-        {/* Rétention */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => onChange({ ...cycle, hold: hasHold ? 0 : 4 })}
-            className={`w-20 shrink-0 text-left text-[11px] transition-colors ${hasHold ? 'text-white/60' : 'text-white/25 italic'}`}
-          >
-            {hasHold ? 'Rétention' : '+ Rétention'}
-          </button>
-          {hasHold && (
-            <HalfStepper
-              value={cycle.hold}
-              onChange={(v) => onChange({ ...cycle, hold: v })}
-              min={0.5}
-            />
-          )}
-        </div>
-
-        {/* Expir */}
-        <HalfStepper
-          label="Expir"
-          value={cycle.exhale || 0.5}
-          onChange={(v) => onChange({ ...cycle, exhale: v })}
-          min={0.5}
-        />
-
-        {/* Vide */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => onChange({ ...cycle, holdEmpty: hasVide ? 0 : 4 })}
-            className={`w-20 shrink-0 text-left text-[11px] transition-colors ${hasVide ? 'text-white/60' : 'text-white/25 italic'}`}
-          >
-            {hasVide ? 'Vide' : '+ Vide'}
-          </button>
-          {hasVide && (
-            <HalfStepper
-              value={cycle.holdEmpty}
-              onChange={(v) => onChange({ ...cycle, holdEmpty: v })}
-              min={0.5}
-            />
-          )}
-        </div>
-      </div>
-
-      {/* Cycle summary */}
       {totalS > 0 && (
-        <p className="text-[10px] text-white/30">
+        <p className="text-[10px] text-white/25 pt-0.5">
           Cycle : {formatDur(totalS)}
         </p>
       )}

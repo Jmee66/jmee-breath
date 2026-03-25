@@ -1,6 +1,7 @@
 import { db, type SyncQueueEntry } from '../db/apneaDb'
 import { supabase } from '../supabase/client'
 import { eventBus } from '../events/eventBus'
+import type { Exercise, Session, FreeTimerSession } from '../types'
 
 const MAX_RETRIES = 5
 const BATCH_SIZE = 50
@@ -97,7 +98,6 @@ class SyncManager {
       } else if (entry.table === 'free_timer_sessions') {
         await db.freeTimerSessions.update(entry.recordId, { syncedAt: now })
       }
-      // user_preferences : pas de record local à mettre à jour (géré par les stores)
 
       eventBus.emit('SYNC_COMPLETED', {
         table: entry.table,
@@ -130,40 +130,22 @@ class SyncManager {
     if (!this.userId) return
 
     // Pull sessions
-    const lastSession = await db.sessions
-      .orderBy('completedAt')
-      .last()
-
+    const lastSession = await db.sessions.orderBy('completedAt').last()
     const sessionQuery = lastSession
-      ? supabase
-          .from('sessions')
-          .select('*')
-          .eq('user_id', this.userId)
-          .gt('completed_at', lastSession.completedAt)
-      : supabase
-          .from('sessions')
-          .select('*')
-          .eq('user_id', this.userId)
+      ? supabase.from('sessions').select('*').eq('user_id', this.userId).gt('completed_at', lastSession.completedAt)
+      : supabase.from('sessions').select('*').eq('user_id', this.userId)
 
     const { data: remoteSessions } = await sessionQuery
     if (remoteSessions?.length) {
       for (const s of remoteSessions) {
         await db.sessions.put(mapRemoteSession(s))
       }
-      eventBus.emit('SYNC_COMPLETED', {
-        table: 'sessions',
-        pushed: 0,
-        pulled: remoteSessions.length,
-      })
+      eventBus.emit('SYNC_COMPLETED', { table: 'sessions', pushed: 0, pulled: remoteSessions.length })
     }
 
     // Pull exercices custom (is_preset = false)
     const { data: remoteExercises } = await supabase
-      .from('exercises')
-      .select('*')
-      .eq('user_id', this.userId)
-      .eq('is_preset', false)
-
+      .from('exercises').select('*').eq('user_id', this.userId).eq('is_preset', false)
     if (remoteExercises?.length) {
       for (const e of remoteExercises) {
         const local = await db.exercises.get(e.id)
@@ -171,11 +153,7 @@ class SyncManager {
           await db.exercises.put(mapRemoteExercise(e))
         }
       }
-      eventBus.emit('SYNC_COMPLETED', {
-        table: 'exercises',
-        pushed: 0,
-        pulled: remoteExercises.length,
-      })
+      eventBus.emit('SYNC_COMPLETED', { table: 'exercises', pushed: 0, pulled: remoteExercises.length })
     }
 
     // Pull free timer sessions
@@ -188,45 +166,132 @@ class SyncManager {
       for (const s of remoteFts) {
         await db.freeTimerSessions.put(mapRemoteFreeTimerSession(s))
       }
-      eventBus.emit('SYNC_COMPLETED', {
-        table: 'free_timer_sessions',
-        pushed: 0,
-        pulled: remoteFts.length,
-      })
+      eventBus.emit('SYNC_COMPLETED', { table: 'free_timer_sessions', pushed: 0, pulled: remoteFts.length })
     }
   }
+
+  /**
+   * Sync forcée bidirectionnelle — point de départ commun pour tous les appareils.
+   *
+   * 1. Push : envoie tout le contenu local non encore dans Supabase
+   * 2. Pull : récupère tout depuis Supabase (sans filtre de date)
+   * 3. Émet SYNC_COMPLETED pour chaque table touchée
+   */
+  async forceSync(): Promise<{ pushed: number; pulled: number }> {
+    if (!this.userId) return { pushed: 0, pulled: 0 }
+    const uid = this.userId
+    let pushed = 0
+    let pulled = 0
+
+    // ── 1. Push exercices custom ────────────────────────────────────────────
+    const localExercises = await db.exercises.filter((e) => !e.isPreset).toArray()
+    if (localExercises.length) {
+      const payloads = localExercises.map((e) => exerciseToSupabase(e, uid))
+      const { error } = await supabase.from('exercises').upsert(payloads)
+      if (!error) {
+        pushed += localExercises.length
+      }
+    }
+
+    // ── 2. Push sessions ────────────────────────────────────────────────────
+    const localSessions = await db.sessions.toArray()
+    if (localSessions.length) {
+      const payloads = localSessions.map((s) => sessionToSupabase(s, uid))
+      const { error } = await supabase.from('sessions').upsert(payloads)
+      if (!error) {
+        pushed += localSessions.length
+        await db.sessions.toCollection().modify({ syncedAt: new Date().toISOString() })
+      }
+    }
+
+    // ── 3. Push free_timer_sessions ─────────────────────────────────────────
+    const localFts = await db.freeTimerSessions.toArray()
+    if (localFts.length) {
+      const payloads = localFts.map((s) => ftsToSupabase(s, uid))
+      const { error } = await supabase.from('free_timer_sessions').upsert(payloads)
+      if (!error) {
+        pushed += localFts.length
+        await db.freeTimerSessions.toCollection().modify({ syncedAt: new Date().toISOString() })
+      }
+    }
+
+    // ── 4. Push préférences ─────────────────────────────────────────────────
+    //    (déjà géré par usePreferencesSync, on flush juste la queue)
+    await this.flush()
+
+    // ── 5. Pull complet exercices (sans filtre de date) ─────────────────────
+    const { data: remoteEx } = await supabase
+      .from('exercises').select('*').eq('user_id', uid).eq('is_preset', false)
+    if (remoteEx?.length) {
+      for (const e of remoteEx) {
+        const local = await db.exercises.get(e.id)
+        if (!local || new Date(e.updated_at) > new Date(local.updatedAt)) {
+          await db.exercises.put(mapRemoteExercise(e))
+        }
+      }
+      pulled += remoteEx.length
+      eventBus.emit('SYNC_COMPLETED', { table: 'exercises', pushed: 0, pulled: remoteEx.length })
+    }
+
+    // ── 6. Pull complet sessions (sans filtre de date) ──────────────────────
+    const { data: remoteSessions } = await supabase
+      .from('sessions').select('*').eq('user_id', uid)
+    if (remoteSessions?.length) {
+      for (const s of remoteSessions) {
+        await db.sessions.put(mapRemoteSession(s))
+      }
+      pulled += remoteSessions.length
+      eventBus.emit('SYNC_COMPLETED', { table: 'sessions', pushed: 0, pulled: remoteSessions.length })
+    }
+
+    // ── 7. Pull complet free_timer_sessions ─────────────────────────────────
+    const { data: remoteFts } = await supabase
+      .from('free_timer_sessions').select('*').eq('user_id', uid)
+    if (remoteFts?.length) {
+      for (const s of remoteFts) {
+        await db.freeTimerSessions.put(mapRemoteFreeTimerSession(s))
+      }
+      pulled += remoteFts.length
+      eventBus.emit('SYNC_COMPLETED', { table: 'free_timer_sessions', pushed: 0, pulled: remoteFts.length })
+    }
+
+    return { pushed, pulled }
+  }
 }
 
+// ── Mappers remote → local (snake_case → camelCase) ───────────────────────────
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapRemoteSession(r: any) {
+function mapRemoteSession(r: any): Session {
   return {
     ...r,
-    exerciseId: r.exercise_id,
+    exerciseId:       r.exercise_id,
     exerciseSnapshot: r.exercise_snapshot,
-    startedAt: r.started_at,
-    completedAt: r.completed_at,
-    durationSeconds: r.duration_seconds,
-    repsCompleted: r.reps_completed,
-    totalReps: r.total_reps,
-    phasesLog: r.phases_log,
-    syncedAt: new Date().toISOString(),
-    localOnly: false,
+    startedAt:        r.started_at,
+    completedAt:      r.completed_at,
+    durationSeconds:  r.duration_seconds,
+    repsCompleted:    r.reps_completed,
+    totalReps:        r.total_reps,
+    phasesLog:        r.phases_log,
+    syncedAt:         new Date().toISOString(),
+    localOnly:        false,
   }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapRemoteExercise(r: any) {
+function mapRemoteExercise(r: any): Exercise {
   return {
     ...r,
-    isPreset: r.is_preset,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
+    isPreset:               r.is_preset,
+    createdAt:              r.created_at,
+    updatedAt:              r.updated_at,
     restBetweenRepsSeconds: r.rest_between_reps_seconds,
+    customPresets:          r.custom_presets ?? [],
   }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapRemoteFreeTimerSession(r: any) {
+function mapRemoteFreeTimerSession(r: any): FreeTimerSession {
   return {
     id:              r.id,
     startedAt:       r.started_at,
@@ -236,6 +301,57 @@ function mapRemoteFreeTimerSession(r: any) {
     notes:           r.notes          ?? '',
     mode:            r.mode           ?? 'apnea',
     syncedAt:        new Date().toISOString(),
+  }
+}
+
+// ── Mappers local → remote (camelCase → snake_case) ───────────────────────────
+
+function exerciseToSupabase(e: Exercise, userId: string): Record<string, unknown> {
+  return {
+    id:                        e.id,
+    user_id:                   userId,
+    name:                      e.name,
+    description:               e.description,
+    category:                  e.category,
+    difficulty:                e.difficulty,
+    tags:                      e.tags,
+    phases:                    e.phases,
+    repetitions:               e.repetitions,
+    rest_between_reps_seconds: e.restBetweenRepsSeconds,
+    is_preset:                 false,
+    custom_presets:            e.customPresets ?? [],
+    created_at:                e.createdAt,
+    updated_at:                e.updatedAt,
+  }
+}
+
+function sessionToSupabase(s: Session, userId: string): Record<string, unknown> {
+  return {
+    id:                s.id,
+    user_id:           userId,
+    exercise_id:       s.exerciseId,
+    exercise_snapshot: s.exerciseSnapshot,
+    started_at:        s.startedAt,
+    completed_at:      s.completedAt,
+    duration_seconds:  s.durationSeconds,
+    reps_completed:    s.repsCompleted,
+    total_reps:        s.totalReps,
+    phases_log:        s.phasesLog,
+    notes:             s.notes,
+    abandoned:         s.abandoned,
+  }
+}
+
+function ftsToSupabase(s: FreeTimerSession, userId: string): Record<string, unknown> {
+  return {
+    id:               s.id,
+    user_id:          userId,
+    started_at:       s.startedAt,
+    completed_at:     s.completedAt,
+    duration_seconds: s.durationSeconds,
+    laps:             s.laps,
+    notes:            s.notes,
+    mode:             s.mode,
   }
 }
 

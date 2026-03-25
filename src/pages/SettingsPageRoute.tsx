@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronDown, LogIn, LogOut, User } from 'lucide-react'
+import { ChevronDown, LogIn, LogOut, User, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react'
 import { PageContainer } from '@modules/theme'
 import { useSoundStore, useVoiceGuideStore, useRiverStore } from '@modules/breath-engine'
 import { Volume2, VolumeX } from 'lucide-react'
 import { useAuthStore } from '@modules/auth/store/authStore'
 import { signOut } from '@modules/auth/services/authService'
+import { syncManager } from '@core/sync'
 import { version } from '../../package.json'
 
 // ── Helpers UI ────────────────────────────────────────────────────────────────
@@ -129,9 +130,29 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
+type SyncStatus = 'idle' | 'syncing' | 'success' | 'error'
+
 export default function SettingsPageRoute() {
   const navigate = useNavigate()
   const user     = useAuthStore((s) => s.user)
+
+  // Sync forcée
+  const [syncStatus,  setSyncStatus]  = useState<SyncStatus>('idle')
+  const [syncResult,  setSyncResult]  = useState<{ pushed: number; pulled: number } | null>(null)
+
+  const handleForceSync = async () => {
+    setSyncStatus('syncing')
+    setSyncResult(null)
+    try {
+      const result = await syncManager.forceSync()
+      setSyncResult(result)
+      setSyncStatus('success')
+    } catch {
+      setSyncStatus('error')
+    } finally {
+      setTimeout(() => setSyncStatus('idle'), 4000)
+    }
+  }
 
   // Sections ouvertes/fermées
   const [openPhase, setOpenPhase]   = useState(false)
@@ -177,6 +198,30 @@ export default function SettingsPageRoute() {
               <p className="text-sm text-text-primary truncate flex-1">{user.email}</p>
               <span className="text-[10px] text-status-success font-medium">Sync actif</span>
             </div>
+
+            {/* Sync forcée */}
+            <button
+              onClick={() => void handleForceSync()}
+              disabled={syncStatus === 'syncing'}
+              className="flex w-full items-center gap-3 px-4 py-3 text-sm text-text-secondary hover:bg-bg-elevated transition-colors disabled:opacity-50"
+            >
+              {syncStatus === 'syncing' ? (
+                <RefreshCw size={15} className="animate-spin text-accent" />
+              ) : syncStatus === 'success' ? (
+                <CheckCircle2 size={15} className="text-status-success" />
+              ) : syncStatus === 'error' ? (
+                <AlertCircle size={15} className="text-status-error" />
+              ) : (
+                <RefreshCw size={15} />
+              )}
+              <span className="flex-1 text-left">
+                {syncStatus === 'syncing' && 'Synchronisation…'}
+                {syncStatus === 'success' && syncResult && `Sync OK · ${syncResult.pushed} envoyés · ${syncResult.pulled} reçus`}
+                {syncStatus === 'error' && 'Erreur — réessayez'}
+                {syncStatus === 'idle' && 'Forcer la synchronisation'}
+              </span>
+            </button>
+
             <button
               onClick={() => void signOut()}
               className="flex w-full items-center gap-3 px-4 py-3 text-sm text-status-error hover:bg-bg-elevated transition-colors"

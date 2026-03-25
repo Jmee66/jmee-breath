@@ -227,12 +227,15 @@ function getWarmupSubPhase(
     }
 
     case 'soupir-cyclique': {
-      // Double inspir : 4 s inspir lent + 2 s top-up + 10 s expir lent = 16 s cycle
-      // Le cercle montre une inspiration fluide sur 6 s puis une expiration sur 10 s
-      const INHALE = 6, EXHALE = 10, CYCLE = 16
+      // 3 phases distinctes par cycle = 16 s
+      //  · 4 s inspir lent  → cercle gonfle (bleu)
+      //  · 2 s top-up       → cercle pulse au max (hold-full bleu) = second inspir rapide
+      //  · 10 s expir lent  → cercle dégonfle (violet)
+      const I1 = 4, HOLD = 2, EX = 10, CYCLE = 16
       const pos = stepElapsedS % CYCLE
-      if (pos < INHALE) return { internalType: 'inhale', progress: pos / INHALE,         subDurationS: INHALE }
-      return               { internalType: 'exhale', progress: (pos - INHALE) / EXHALE, subDurationS: EXHALE }
+      if (pos < I1)          return { internalType: 'inhale',    progress: pos / I1,            subDurationS: I1   }
+      if (pos < I1 + HOLD)   return { internalType: 'hold-full', progress: (pos - I1) / HOLD,   subDurationS: HOLD }
+      return                        { internalType: 'exhale',    progress: (pos - I1 - HOLD) / EX, subDurationS: EX }
     }
 
     case '6-6-12': {

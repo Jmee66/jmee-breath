@@ -72,6 +72,7 @@ export class BreathClock {
       await this.audioCtx.resume()
     }
     this.startKeepAlive()
+    this.setMediaSession('playing', exercise.name)
     this.scheduledPhases  = this.buildSchedule(exercise, this.audioCtx.currentTime, preparationDuration)
     this.currentPhaseIndex = -1
 
@@ -85,6 +86,7 @@ export class BreathClock {
     if (this.audioCtx.state !== 'running') return
     this.isUserPaused = true
     this.pausedAt     = this.audioCtx.currentTime
+    this.setMediaSession('paused')
     void this.audioCtx.suspend()
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId)
@@ -95,6 +97,7 @@ export class BreathClock {
   resume(): void {
     if (this.pausedAt === null) return
     this.isUserPaused = false
+    this.setMediaSession('playing')
     const suspendDuration = this.audioCtx.currentTime - this.pausedAt
     this.scheduledPhases  = this.scheduledPhases.map((p) =>
       p.startTime >= this.pausedAt!
@@ -119,6 +122,7 @@ export class BreathClock {
 
   stop(): void {
     this.stopKeepAlive()
+    this.setMediaSession('none')
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId)
       this.rafId = null
@@ -160,6 +164,35 @@ export class BreathClock {
   private stopKeepAlive(): void {
     try { this.keepAliveSource?.stop() } catch { /* already stopped */ }
     this.keepAliveSource = null
+  }
+
+  // ── MediaSession (anti-suspension iOS 16+) ────────────────────────────────
+
+  /**
+   * Déclare l'app comme lecteur audio actif auprès de l'OS.
+   * iOS 16+ ne suspend plus le JS tant que playbackState = 'playing',
+   * même quand l'écran est verrouillé.
+   * Non disponible sur certains navigateurs → fail silently.
+   */
+  private setMediaSession(
+    state: 'playing' | 'paused' | 'none',
+    title = 'Apnée en cours',
+  ): void {
+    if (!('mediaSession' in navigator)) return
+    try {
+      if (state === 'none') {
+        navigator.mediaSession.playbackState = 'none'
+        return
+      }
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title,
+        artist:  'Apnea',
+        album:   'Session de respiration',
+      })
+      navigator.mediaSession.playbackState = state
+    } catch {
+      // best-effort — MediaSession peut être absent ou rejeté
+    }
   }
 
   getAudioTime(): number {

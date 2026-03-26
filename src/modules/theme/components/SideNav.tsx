@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   Home, BookOpen, BarChart2, Wind, Brain,
-  Timer, User, Settings, LogOut,
+  Timer, Layers, User, Settings, LogOut,
 } from 'lucide-react'
 import { signOut } from '@modules/auth'
 
@@ -12,6 +12,7 @@ const mainItems = [
   { to: '/exercises', icon: Wind,      label: 'Exercices' },
   { to: '/coach',     icon: Brain,     label: 'Coach IA' },
   { to: '/timer',     icon: Timer,     label: 'Timer' },
+  { to: '/tables',    icon: Layers,    label: 'Tables Apnée' },
 ]
 
 const bottomItems = [

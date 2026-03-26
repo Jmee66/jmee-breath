@@ -1,4 +1,3 @@
-import { nanoid } from 'nanoid'
 import { db } from '@core/db/apneaDb'
 import { syncManager } from '@core/sync/syncManager'
 import { useAuthStore } from '@modules/auth/store/authStore'
@@ -10,7 +9,7 @@ function toSupabasePayload(t: ApneaTable, userId: string): Record<string, unknow
     user_id:          userId,
     name:             t.name,
     type:             t.type,
-    rows:             JSON.stringify(t.rows),
+    rows:             t.rows,
     reference_max_s:  t.referenceMaxS,
     series_count:     t.seriesCount,
     recovery_pattern: t.recoveryPattern,
@@ -25,18 +24,24 @@ export const tableWriter = {
     data: Omit<ApneaTable, 'id' | 'createdAt' | 'updatedAt' | 'syncedAt'>,
     existingId?: string,
   ): Promise<ApneaTable> {
-    const now   = new Date().toISOString()
+    const now = new Date().toISOString()
     const table: ApneaTable = {
       ...data,
-      id:        existingId ?? nanoid(),
-      createdAt: existingId ? (await db.apneaTables.get(existingId))?.createdAt ?? now : now,
+      id:        existingId ?? crypto.randomUUID(),
+      createdAt: existingId ? ((await db.apneaTables.get(existingId))?.createdAt ?? now) : now,
       updatedAt: now,
       syncedAt:  null,
     }
     await db.apneaTables.put(table)
     const userId = useAuthStore.getState().user?.id
     if (userId) {
-      syncManager.enqueue('upsert', 'apnea_tables', table.id, toSupabasePayload(table, userId))
+      await syncManager.enqueue({
+        table:     'apnea_tables',
+        operation: 'upsert',
+        recordId:  table.id,
+        payload:   toSupabasePayload(table, userId),
+        createdAt: now,
+      })
     }
     return table
   },
@@ -45,7 +50,13 @@ export const tableWriter = {
     await db.apneaTables.delete(id)
     const userId = useAuthStore.getState().user?.id
     if (userId) {
-      syncManager.enqueue('delete', 'apnea_tables', id, { id })
+      await syncManager.enqueue({
+        table:     'apnea_tables',
+        operation: 'delete',
+        recordId:  id,
+        payload:   { id },
+        createdAt: new Date().toISOString(),
+      })
     }
   },
 }

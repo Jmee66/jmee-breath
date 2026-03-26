@@ -96,7 +96,6 @@ interface Display {
   totalProgress:   number
 }
 
-const PREP_BETWEEN = 3   // secondes de transition entre hold et récup
 
 export function TableRunner({ table, onDone }: Props) {
   // ── Stores ──────────────────────────────────────────────────────────────────
@@ -233,7 +232,6 @@ export function TableRunner({ table, onDone }: Props) {
       startSegmentClock(seg.type, segDuration, seg.rowIndex)
     }
 
-    const segElapsed    = elapsedS - seg.startS
     const segRemaining  = seg.endS - elapsedS
     const phaseLabel    = seg.type === 'hold' ? 'Rétention' : 'Récupération'
     const instruction   = seg.type === 'hold'
@@ -373,7 +371,7 @@ export function TableRunner({ table, onDone }: Props) {
 
       {/* BreathCircle */}
       <div className="flex-1 flex items-center justify-center">
-        <BreathCircle size={220} />
+        <BreathCircle />
       </div>
 
       {/* Timer phase */}

@@ -1,0 +1,430 @@
+import { useState, useEffect, useCallback } from 'react'
+import { ArrowLeft, Wand2, Sliders, RefreshCw } from 'lucide-react'
+import type { ApneaTable, TableType, RecoveryPattern, TableRow } from '../types'
+import {
+  generateRows, totalTableDuration, fmtTime,
+  getPersonalBest, RECOVERY_CYCLE_S,
+} from '../services/tableGenerator'
+
+// ── Constantes UI ─────────────────────────────────────────────────────────────
+
+const TYPE_OPTIONS: { value: TableType; label: string; desc: string }[] = [
+  { value: 'co2', label: 'CO₂', desc: 'Hold fixe · récup décroissante · travail tolérance CO₂' },
+  { value: 'o2',  label: 'O₂',  desc: 'Hold croissant · récup fixe · travail capacité' },
+  { value: 'mix', label: 'Mix', desc: 'Première moitié CO₂, seconde moitié O₂' },
+]
+
+const RECOVERY_OPTIONS: { value: RecoveryPattern; label: string }[] = [
+  { value: 'soupir',      label: 'Soupir (3+7 s)' },
+  { value: '6-6-12',     label: '6-6-12 s' },
+  { value: 'co2-pattern', label: 'CO₂ pattern (4+2+10 s)' },
+]
+
+// ── Composant ─────────────────────────────────────────────────────────────────
+
+interface Props {
+  initialTable?: ApneaTable
+  onSave:   (data: Omit<ApneaTable, 'id' | 'createdAt' | 'updatedAt' | 'syncedAt'>) => Promise<void>
+  onCancel: () => void
+}
+
+export function TableEditor({ initialTable, onSave, onCancel }: Props) {
+  // ── Mode de config ──────────────────────────────────────────────────────────
+  const [configMode, setConfigMode] = useState<'auto' | 'manual'>('auto')
+
+  // ── Champs ──────────────────────────────────────────────────────────────────
+  const [name,            setName]            = useState(initialTable?.name ?? '')
+  const [type,            setType]            = useState<TableType>(initialTable?.type ?? 'co2')
+  const [seriesCount,     setSeriesCount]     = useState(initialTable?.seriesCount ?? 8)
+  const [referenceMaxS,   setReferenceMaxS]   = useState(initialTable?.referenceMaxS ?? 90)
+  const [formeFactor,     setFormeFactor]     = useState(initialTable?.formeFactor ?? 0)
+  const [recoveryPattern, setRecoveryPattern] = useState<RecoveryPattern>(
+    initialTable?.recoveryPattern ?? 'soupir',
+  )
+  const [rows,            setRows]            = useState<TableRow[]>(
+    initialTable?.rows ?? generateRows('co2', 90, 0, 8),
+  )
+
+  // ── Personal Best ───────────────────────────────────────────────────────────
+  const [pb,    setPb]    = useState<number | null>(null)
+  const [refMode, setRefMode] = useState<'pb' | 'custom'>('custom')
+
+  useEffect(() => {
+    void getPersonalBest().then((v) => {
+      setPb(v)
+      if (v && !initialTable) {
+        setReferenceMaxS(v)
+        setRefMode('pb')
+      }
+    })
+  }, [initialTable])
+
+  // ── Génération auto ─────────────────────────────────────────────────────────
+  const regenerate = useCallback(() => {
+    setRows(generateRows(type, referenceMaxS, formeFactor, seriesCount))
+  }, [type, referenceMaxS, formeFactor, seriesCount])
+
+  // Regénère dès qu'un param change (mode auto)
+  useEffect(() => {
+    if (configMode === 'auto') regenerate()
+  }, [configMode, regenerate])
+
+  // ── Édition manuelle d'une ligne ────────────────────────────────────────────
+  function updateRow(i: number, field: keyof TableRow, value: number) {
+    setRows((prev) => prev.map((r, idx) => idx === i ? { ...r, [field]: value } : r))
+  }
+  function addRow() {
+    const last = rows[rows.length - 1]
+    setRows((prev) => [...prev, { holdS: last?.holdS ?? 60, recoveryS: last?.recoveryS ?? 120 }])
+  }
+  function removeRow(i: number) {
+    if (rows.length <= 1) return
+    setRows((prev) => prev.filter((_, idx) => idx !== i))
+  }
+
+  // ── Enregistrement ──────────────────────────────────────────────────────────
+  const [saving, setSaving] = useState(false)
+
+  async function handleSave() {
+    if (!name.trim()) return
+    setSaving(true)
+    try {
+      await onSave({ name: name.trim(), type, rows, referenceMaxS, seriesCount, recoveryPattern, formeFactor })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const totalS  = totalTableDuration(rows)
+  const maxHold = Math.max(...rows.map((r) => r.holdS), 1)
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+  return (
+    <div className="flex flex-col h-full bg-bg-base">
+
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 pt-6 pb-4 border-b border-border">
+        <button onClick={onCancel} className="p-1.5 -ml-1 text-text-muted">
+          <ArrowLeft size={20} />
+        </button>
+        <h1 className="flex-1 text-lg font-bold text-text-primary">
+          {initialTable ? 'Modifier la table' : 'Nouvelle table'}
+        </h1>
+        <button
+          onClick={() => void handleSave()}
+          disabled={saving || !name.trim()}
+          className="px-4 py-2 rounded-xl bg-accent text-white text-sm font-semibold disabled:opacity-40"
+        >
+          {saving ? 'Sauvegarde…' : 'Sauvegarder'}
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-5 space-y-6">
+
+        {/* Nom */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wide text-text-muted">Nom</label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Ma table CO₂…"
+            className="w-full rounded-xl bg-bg-elevated border border-border px-3 py-2.5 text-sm text-text-primary placeholder:text-white/25 outline-none focus:border-accent"
+          />
+        </div>
+
+        {/* Type */}
+        <div className="space-y-2">
+          <label className="text-xs font-semibold uppercase tracking-wide text-text-muted">Type</label>
+          <div className="grid grid-cols-3 gap-2">
+            {TYPE_OPTIONS.map((t) => (
+              <button
+                key={t.value}
+                onClick={() => setType(t.value)}
+                className={`rounded-xl border py-3 text-sm font-bold transition-colors ${
+                  type === t.value
+                    ? 'bg-accent border-accent text-white'
+                    : 'bg-bg-elevated border-border text-text-muted hover:text-text-primary'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-text-muted pl-1">
+            {TYPE_OPTIONS.find((t) => t.value === type)?.desc}
+          </p>
+        </div>
+
+        {/* Mode config */}
+        <div className="space-y-3">
+          <label className="text-xs font-semibold uppercase tracking-wide text-text-muted">Configuration</label>
+          <div className="flex rounded-xl overflow-hidden border border-border">
+            {[
+              { value: 'auto',   label: 'Auto',    icon: Wand2 },
+              { value: 'manual', label: 'Manuel', icon: Sliders },
+            ].map(({ value, label, icon: Icon }) => (
+              <button
+                key={value}
+                onClick={() => setConfigMode(value as 'auto' | 'manual')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold transition-colors ${
+                  configMode === value
+                    ? 'bg-accent text-white'
+                    : 'bg-bg-overlay text-text-muted hover:text-text-primary'
+                }`}
+              >
+                <Icon size={14} />
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Paramètres auto */}
+        {configMode === 'auto' && (
+          <div className="space-y-4 rounded-xl bg-bg-elevated border border-border p-4">
+
+            {/* Référence */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-text-muted uppercase tracking-wide">
+                  Référence max
+                </label>
+                {pb && (
+                  <button
+                    onClick={() => { setRefMode('pb'); setReferenceMaxS(pb) }}
+                    className={`text-[11px] px-2 py-0.5 rounded-lg border transition-colors ${
+                      refMode === 'pb'
+                        ? 'bg-accent/20 border-accent/40 text-accent'
+                        : 'bg-bg-overlay border-border text-text-muted'
+                    }`}
+                  >
+                    PB {fmtTime(pb)}
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={20} max={360} step={5}
+                  value={referenceMaxS}
+                  onChange={(e) => { setRefMode('custom'); setReferenceMaxS(Number(e.target.value)) }}
+                  className="flex-1 accent-accent"
+                />
+                <span className="w-14 text-right text-sm font-mono text-text-primary">
+                  {fmtTime(referenceMaxS)}
+                </span>
+              </div>
+            </div>
+
+            {/* Séries */}
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-text-muted uppercase tracking-wide">
+                Séries
+              </label>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSeriesCount((n) => Math.max(2, n - 1))}
+                  className="h-7 w-7 rounded-lg bg-bg-overlay text-white/70 font-bold text-xs"
+                >−</button>
+                <span className="w-6 text-center text-sm font-mono text-text-primary">{seriesCount}</span>
+                <button
+                  onClick={() => setSeriesCount((n) => Math.min(16, n + 1))}
+                  className="h-7 w-7 rounded-lg bg-bg-overlay text-white/70 font-bold text-xs"
+                >+</button>
+              </div>
+            </div>
+
+            {/* Forme du jour */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-text-muted uppercase tracking-wide">
+                  Forme du jour
+                </label>
+                <span className={`text-sm font-mono font-bold ${
+                  formeFactor > 0 ? 'text-green-400' : formeFactor < 0 ? 'text-orange-400' : 'text-text-muted'
+                }`}>
+                  {formeFactor > 0 ? '+' : ''}{Math.round(formeFactor * 100)} %
+                </span>
+              </div>
+              <input
+                type="range"
+                min={-30} max={20} step={5}
+                value={Math.round(formeFactor * 100)}
+                onChange={(e) => setFormeFactor(Number(e.target.value) / 100)}
+                className="w-full accent-accent"
+              />
+              <div className="flex justify-between text-[10px] text-text-muted">
+                <span>Journée difficile</span>
+                <span>Forme normale</span>
+                <span>Très bonne forme</span>
+              </div>
+            </div>
+
+            {/* Recap ref effective */}
+            <p className="text-[11px] text-text-muted text-center pt-1">
+              Référence effective :{' '}
+              <span className="font-semibold text-text-secondary">
+                {fmtTime(Math.round(referenceMaxS * (1 + formeFactor)))}
+              </span>
+            </p>
+          </div>
+        )}
+
+        {/* Récupération */}
+        <div className="space-y-2">
+          <label className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+            Respiration récupération
+          </label>
+          <div className="space-y-1.5">
+            {RECOVERY_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setRecoveryPattern(opt.value)}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-sm transition-colors ${
+                  recoveryPattern === opt.value
+                    ? 'bg-accent/10 border-accent/40 text-text-primary'
+                    : 'bg-bg-elevated border-border text-text-muted hover:text-text-primary'
+                }`}
+              >
+                <span>{opt.label}</span>
+                <span className="text-[11px] text-text-muted">
+                  {RECOVERY_CYCLE_S[opt.value]}s / cycle
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Aperçu / éditeur manuel */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+              Table ({rows.length} séries · {fmtTime(totalS)})
+            </label>
+            {configMode === 'auto' && (
+              <button
+                onClick={regenerate}
+                className="flex items-center gap-1 text-[11px] text-accent"
+              >
+                <RefreshCw size={11} />
+                Regénérer
+              </button>
+            )}
+          </div>
+
+          {/* Barres hold visuelles */}
+          <div className="flex items-end gap-0.5 h-12 bg-bg-elevated rounded-xl p-2">
+            {rows.map((row, i) => (
+              <div
+                key={i}
+                className="flex-1 rounded-sm bg-accent/50"
+                style={{ height: `${Math.max(15, (row.holdS / maxHold) * 100)}%` }}
+                title={`Hold ${fmtTime(row.holdS)}`}
+              />
+            ))}
+          </div>
+
+          {/* Lignes éditables */}
+          <div className="space-y-1.5">
+            {rows.map((row, i) => (
+              <RowEditor
+                key={i}
+                index={i}
+                row={row}
+                total={rows.length}
+                editable={configMode === 'manual'}
+                onChange={(f, v) => updateRow(i, f, v)}
+                onRemove={() => removeRow(i)}
+              />
+            ))}
+          </div>
+
+          {configMode === 'manual' && (
+            <button
+              onClick={addRow}
+              className="w-full py-2 rounded-xl border border-dashed border-border text-xs text-text-muted hover:text-text-primary hover:border-accent/40 transition-colors"
+            >
+              + Ajouter une série
+            </button>
+          )}
+        </div>
+
+      </div>
+    </div>
+  )
+}
+
+// ── RowEditor ─────────────────────────────────────────────────────────────────
+
+function RowEditor({
+  index, row, total, editable, onChange, onRemove,
+}: {
+  index:    number
+  row:      TableRow
+  total:    number
+  editable: boolean
+  onChange: (field: keyof TableRow, value: number) => void
+  onRemove: () => void
+}) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-bg-elevated border border-border">
+      <span className="w-5 text-[11px] text-text-muted text-center font-mono">{index + 1}</span>
+
+      {/* Hold */}
+      <div className="flex-1 flex items-center gap-1.5">
+        <span className="text-[10px] text-blue-400/70 w-10 shrink-0">Hold</span>
+        {editable ? (
+          <TimeInput value={row.holdS} onChange={(v) => onChange('holdS', v)} />
+        ) : (
+          <span className="text-sm font-mono text-text-primary">{fmtTime(row.holdS)}</span>
+        )}
+      </div>
+
+      <div className="w-px h-4 bg-border" />
+
+      {/* Recovery */}
+      <div className="flex-1 flex items-center gap-1.5">
+        <span className="text-[10px] text-green-400/70 w-10 shrink-0">Récup</span>
+        {editable ? (
+          <TimeInput value={row.recoveryS} onChange={(v) => onChange('recoveryS', v)} />
+        ) : (
+          <span className="text-sm font-mono text-text-primary">{fmtTime(row.recoveryS)}</span>
+        )}
+      </div>
+
+      {editable && (
+        <button
+          onClick={onRemove}
+          disabled={total <= 1}
+          className="p-1 text-white/25 hover:text-status-error disabled:opacity-10"
+        >✕</button>
+      )}
+    </div>
+  )
+}
+
+// ── TimeInput ─────────────────────────────────────────────────────────────────
+
+function TimeInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const m  = Math.floor(value / 60)
+  const s  = value % 60
+
+  function setMin(v: number) { onChange(Math.max(0, v) * 60 + s) }
+  function setSec(v: number) { onChange(m * 60 + Math.max(0, Math.min(59, v))) }
+
+  return (
+    <div className="flex items-center gap-0.5 text-sm font-mono">
+      <input
+        type="number" min={0} max={59} value={m}
+        onChange={(e) => setMin(Number(e.target.value))}
+        className="w-7 text-center bg-transparent text-text-primary outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+      />
+      <span className="text-white/30">:</span>
+      <input
+        type="number" min={0} max={59} value={String(s).padStart(2, '0')}
+        onChange={(e) => setSec(Number(e.target.value))}
+        className="w-7 text-center bg-transparent text-text-primary outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+      />
+    </div>
+  )
+}

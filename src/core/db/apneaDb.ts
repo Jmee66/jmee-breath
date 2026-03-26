@@ -3,11 +3,12 @@ import type { Exercise } from '../types/exercise.types'
 import type { Session, FreeTimerSession } from '../types/session.types'
 import type { UserSettings } from '../types/user.types'
 import type { CustomWarmup } from '@modules/free-timer/types'
+import type { ApneaTable } from '@modules/apnea-tables/types'
 
 export interface SyncQueueEntry {
   id?: number
   /** Tables Supabase concernées par la sync — étendre ici quand on ajoute une table. */
-  table: 'exercises' | 'sessions' | 'free_timer_sessions' | 'user_preferences' | 'custom_warmups'
+  table: 'exercises' | 'sessions' | 'free_timer_sessions' | 'user_preferences' | 'custom_warmups' | 'apnea_tables'
   operation: 'upsert' | 'delete'
   recordId: string
   payload: unknown
@@ -36,6 +37,7 @@ export class ApneaDatabase extends Dexie {
   sessions!: EntityTable<Session, 'id'>
   freeTimerSessions!: EntityTable<FreeTimerSession, 'id'>
   customWarmups!: EntityTable<CustomWarmup, 'id'>
+  apneaTables!: EntityTable<ApneaTable, 'id'>
   settings!: EntityTable<LocalSettings, 'id'>
   onboarding!: EntityTable<OnboardingState, 'id'>
   syncQueue!: EntityTable<SyncQueueEntry, 'id'>
@@ -54,6 +56,10 @@ export class ApneaDatabase extends Dexie {
 
     this.version(2).stores({
       customWarmups: 'id, createdAt, syncedAt',
+    })
+
+    this.version(3).stores({
+      apneaTables: 'id, type, createdAt, syncedAt',
     })
   }
 }

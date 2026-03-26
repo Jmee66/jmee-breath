@@ -10,6 +10,7 @@ import StatsPageRoute from '@pages/StatsPageRoute'
 import ExercisesPageRoute from '@pages/ExercisesPageRoute'
 import CoachPageRoute from '@pages/CoachPageRoute'
 import FreeTimerPageRoute from '@pages/FreeTimerPageRoute'
+import ApneaTablesPageRoute from '@pages/ApneaTablesPageRoute'
 import ProfilePageRoute from '@pages/ProfilePageRoute'
 import SettingsPageRoute from '@pages/SettingsPageRoute'
 
@@ -29,6 +30,7 @@ export default function App() {
           <Route path="exercises" element={<ExercisesPageRoute />} />
           <Route path="coach" element={<CoachPageRoute />} />
           <Route path="timer" element={<FreeTimerPageRoute />} />
+          <Route path="tables" element={<ApneaTablesPageRoute />} />
           <Route path="profile" element={<ProfilePageRoute />} />
           <Route path="settings" element={<SettingsPageRoute />} />
         </Route>

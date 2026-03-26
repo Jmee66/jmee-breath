@@ -1,11 +1,11 @@
 import { NavLink } from 'react-router-dom'
-import { Home, Wind, Timer, Brain, Settings } from 'lucide-react'
+import { Home, Wind, Timer, Layers, Settings } from 'lucide-react'
 
 const navItems = [
   { to: '/',          icon: Home,     label: 'Accueil'   },
   { to: '/exercises', icon: Wind,     label: 'Exercices' },
   { to: '/timer',     icon: Timer,    label: 'Timer'     },
-  { to: '/coach',     icon: Brain,    label: 'Coach'     },
+  { to: '/tables',    icon: Layers,   label: 'Tables'    },
   { to: '/settings',  icon: Settings, label: 'Réglages'  },
 ]
 

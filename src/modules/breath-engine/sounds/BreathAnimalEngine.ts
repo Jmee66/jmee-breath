@@ -50,11 +50,12 @@ interface ProximityTier {
 const TIERS: ProximityTier[] = [
   // ── Très proche — aigu, brillant, présent, pan large ──────────────────────
   // gainRange : ×0.80 (−20% très proche) ×0.90 (−10% global) ×0.80 (−20% v0.2.3) = ×0.576
+  // v0.4.1 : freq −40% · intervalle +70% · gain −30%
   {
-    gainRange:     [0.27, 0.42],
-    freqRange:     [2200, 3900],
+    gainRange:     [0.189, 0.294],   // [0.27, 0.42] × 0.70
+    freqRange:     [1320,  2340],    // [2200, 3900] × 0.60
     panRange:      [0.55, 0.88],
-    intervalRange: [28600, 71500],
+    intervalRange: [48600, 121550],  // [28600, 71500] × 1.70
     notesRange:    [2, 5],
     filterFreq:    null,
     vibratoDepth:  0.022,
@@ -67,11 +68,12 @@ const TIERS: ProximityTier[] = [
   },
   // ── Moyen — lumineux, modéré ───────────────────────────────────────────────
   // gainRange : ×0.90 (−10% global) ×0.80 (−20% v0.2.3)
+  // v0.4.1 : freq −40% · intervalle +70% · gain −30%
   {
-    gainRange:     [0.20, 0.34],
-    freqRange:     [1000, 2400],
+    gainRange:     [0.140, 0.238],   // [0.20, 0.34] × 0.70
+    freqRange:     [600,   1440],    // [1000, 2400] × 0.60
     panRange:      [0.25, 0.58],
-    intervalRange: [11700, 36400],
+    intervalRange: [19890, 61880],   // [11700, 36400] × 1.70
     notesRange:    [2, 6],
     filterFreq:    null,
     vibratoDepth:  0.018,

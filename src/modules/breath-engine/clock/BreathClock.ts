@@ -41,6 +41,13 @@ export class BreathClock {
   private readonly soundEngine: BreathSoundEngine | null
   private readonly droneEngine: BreathDroneEngine | null
 
+  /**
+   * Nœud silencieux en boucle (gain ≈ 0.001) pour maintenir l'AudioContext
+   * actif sur iOS même quand il n'y a pas de bip entre deux phases.
+   * Sans lui, iOS suspend l'AudioContext lors du verrouillage de l'écran.
+   */
+  private keepAliveSource: AudioBufferSourceNode | null = null
+
   constructor(
     callbacks: BreathClockCallbacks,
     soundSettings?: SoundSettings,
@@ -64,6 +71,7 @@ export class BreathClock {
     if (this.audioCtx.state !== 'running') {
       await this.audioCtx.resume()
     }
+    this.startKeepAlive()
     this.scheduledPhases  = this.buildSchedule(exercise, this.audioCtx.currentTime, preparationDuration)
     this.currentPhaseIndex = -1
 
@@ -110,6 +118,7 @@ export class BreathClock {
   }
 
   stop(): void {
+    this.stopKeepAlive()
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId)
       this.rafId = null
@@ -117,6 +126,40 @@ export class BreathClock {
     this.soundEngine?.cancelAll()
     this.droneEngine?.cancelAll()
     void this.audioCtx.close()
+  }
+
+  // ── Keepalive silencieux (anti-suspension iOS) ────────────────────────────
+
+  /**
+   * Joue un buffer silencieux en boucle (gain = 0.001, ~−60 dB).
+   * Empêche iOS de suspendre l'AudioContext entre les bips de phases
+   * et lors du verrouillage de l'écran.
+   */
+  private startKeepAlive(): void {
+    if (this.keepAliveSource) return                               // déjà actif
+    try {
+      const sampleRate = this.audioCtx.sampleRate
+      // 2 secondes de silence
+      const buffer = this.audioCtx.createBuffer(1, sampleRate * 2, sampleRate)
+      const src    = this.audioCtx.createBufferSource()
+      src.buffer   = buffer
+      src.loop     = true
+
+      const gain        = this.audioCtx.createGain()
+      gain.gain.value   = 0.001                                   // inaudible
+      src.connect(gain)
+      gain.connect(this.audioCtx.destination)
+      src.start(0)
+
+      this.keepAliveSource = src
+    } catch {
+      // Fail silently — le keepalive est best-effort
+    }
+  }
+
+  private stopKeepAlive(): void {
+    try { this.keepAliveSource?.stop() } catch { /* already stopped */ }
+    this.keepAliveSource = null
   }
 
   getAudioTime(): number {

@@ -659,11 +659,13 @@ export function FreeTimerPage() {
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') {
-        // Annule proprement le RAF (stoppe la boucle, reset id)
+        // Annule proprement le RAF maître (stoppe la boucle, reset id)
         if (rafRef.current !== null) {
           cancelAnimationFrame(rafRef.current)
           rafRef.current = null
         }
+        // Signale au BreathClock de l'étape warmup en cours
+        warmupClockRef.current?.handlePageHidden()
         return
       }
 
@@ -675,7 +677,12 @@ export function FreeTimerPage() {
         void requestWakeLock()
       }
 
-      // Relance le RAF : annule l'id fantôme éventuel + toujours restart
+      // Reprend le BreathClock du step warmup (AudioContext + RAF interne)
+      if (activePhase === 'warmup') {
+        warmupClockRef.current?.handlePageVisible()
+      }
+
+      // Relance le RAF maître : annule l'id fantôme éventuel + toujours restart
       if ((activePhase === 'running' || activePhase === 'warmup') && tickFnRef.current) {
         if (rafRef.current !== null) {
           cancelAnimationFrame(rafRef.current)

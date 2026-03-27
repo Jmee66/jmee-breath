@@ -156,7 +156,9 @@ export async function getPersonalBest(): Promise<number | null> {
 export function buildTable(
   params: Pick<ApneaTable, 'name' | 'type' | 'referenceMaxS' | 'seriesCount' | 'recoveryPattern' | 'formeFactor'>,
 ): Omit<ApneaTable, 'id' | 'createdAt' | 'updatedAt' | 'syncedAt'> {
-  const rows = generateRows(params.type, params.referenceMaxS, params.formeFactor, params.seriesCount)
+  const rows = params.type !== 'custom'
+    ? generateRows(params.type, params.referenceMaxS, params.formeFactor, params.seriesCount)
+    : []
   return { ...params, rows }
 }
 

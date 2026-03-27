@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Play, Trash2, ChevronRight, Clock, Layers } from 'lucide-react'
+import { Plus, Play, Trash2, ChevronRight, Clock, Layers, Heart } from 'lucide-react'
 import type { ApneaTable } from '../types'
 import { tableRepository } from '../services/tableRepository'
 import { tableWriter } from '../services/tableWriter'
 import { totalTableDuration, fmtTime } from '../services/tableGenerator'
 import { TableEditor } from './TableEditor'
 import { TableRunner } from './TableRunner'
+import { useSettingsStore } from '@modules/settings'
 
 const TYPE_LABEL: Record<ApneaTable['type'], string> = {
   co2:    'CO₂',
@@ -27,11 +28,14 @@ export default function ApneaTablesPage() {
   const [runTarget,   setRunTarget]   = useState<ApneaTable | null>(null)
   const [deleteId,    setDeleteId]    = useState<string | null>(null)
 
+  const { settings, load: loadSettings, toggleTableFavorite } = useSettingsStore()
+
   const reload = useCallback(() => {
     void tableRepository.getAll().then(setTables)
   }, [])
 
   useEffect(() => { reload() }, [reload])
+  useEffect(() => { void loadSettings() }, [loadSettings])
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
@@ -102,6 +106,8 @@ export default function ApneaTablesPage() {
             <TableCard
               key={table.id}
               table={table}
+              isFavorite={(settings.favoriteTableIds ?? []).includes(table.id)}
+              onToggleFavorite={() => void toggleTableFavorite(table.id)}
               onRun={() => startRun(table)}
               onEdit={() => { setEditTarget(table); setView('editor') }}
               onDelete={() => setDeleteId(table.id)}
@@ -140,12 +146,14 @@ export default function ApneaTablesPage() {
 // ── TableCard ─────────────────────────────────────────────────────────────────
 
 function TableCard({
-  table, onRun, onEdit, onDelete,
+  table, isFavorite, onToggleFavorite, onRun, onEdit, onDelete,
 }: {
-  table:    ApneaTable
-  onRun:    () => void
-  onEdit:   () => void
-  onDelete: () => void
+  table:            ApneaTable
+  isFavorite:       boolean
+  onToggleFavorite: () => void
+  onRun:            () => void
+  onEdit:           () => void
+  onDelete:         () => void
 }) {
   const isCustom   = table.type === 'custom'
   const total      = totalTableDuration(table.rows)
@@ -161,6 +169,15 @@ function TableCard({
           {TYPE_LABEL[table.type]}
         </span>
         <span className="flex-1 font-semibold text-text-primary truncate">{table.name}</span>
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleFavorite() }}
+          className="p-1 transition-colors"
+        >
+          <Heart
+            size={16}
+            className={isFavorite ? 'text-status-error fill-status-error' : 'text-text-muted hover:text-status-error'}
+          />
+        </button>
         <button
           onClick={onRun}
           className="h-9 w-9 flex items-center justify-center rounded-xl bg-accent text-white shadow"
@@ -192,7 +209,7 @@ function TableCard({
       <div className="flex items-end gap-0.5 px-4 pb-3 h-9">
         {isCustom ? (
           // Pour custom : afficher les phases actives comme barres de couleur
-          (table.customPhases?.filter((p) => p.enabled) ?? []).map((phase, i) => (
+          (table.customPhases?.filter((p) => p.enabled) ?? []).map((_phase, i) => (
             <div key={i} className="flex-1 flex flex-col justify-end gap-0.5">
               <div className="rounded-sm" style={{ height: '100%', backgroundColor: 'var(--color-accent, #7561af)' + '99' }} />
             </div>

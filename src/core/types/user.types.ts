@@ -32,6 +32,8 @@ export interface UserSettings {
   voice: VoiceSettings
   notifications: NotificationSettings
   favoriteExerciseIds: string[]
+  favoriteTableIds: string[]
+  favoriteWarmupIds: string[]
   hiddenPresetIds: string[]
 }
 
@@ -77,6 +79,8 @@ export function defaultUserSettings(): UserSettings {
       reminderDays: [1, 2, 3, 4, 5],
     },
     favoriteExerciseIds: [],
+    favoriteTableIds: [],
+    favoriteWarmupIds: [],
     hiddenPresetIds: [],
   }
 }

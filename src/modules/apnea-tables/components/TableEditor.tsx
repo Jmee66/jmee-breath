@@ -3,7 +3,7 @@ import { ArrowLeft, Wand2, Sliders, RefreshCw, X, ChevronDown, ChevronUp, Copy, 
 import type { ApneaTable, TableType, RecoveryPattern, TableRow, CustomPhaseType, CustomItem, CustomPhaseItem, CustomGroupItem } from '../types'
 import {
   generateRows, totalTableDuration, fmtTime,
-  getPersonalBest, RECOVERY_CYCLE_S, CUSTOM_PHASE_CONFIG,
+  getPersonalBest, CUSTOM_PHASE_CONFIG,
   defaultCustomProgram, migrateCustomPhases, customProgramDuration, genId,
 } from '../services/tableGenerator'
 
@@ -15,11 +15,6 @@ const TYPE_OPTIONS: { value: TableType; label: string; desc: string }[] = [
   { value: 'custom', label: 'Custom', desc: 'Table libre — définis chaque phase toi-même' },
 ]
 
-const RECOVERY_OPTIONS: { value: RecoveryPattern; label: string }[] = [
-  { value: 'soupir',      label: 'Soupir (3+7 s)' },
-  { value: '6-6-12',     label: '6-6-12 s' },
-  { value: 'co2-pattern', label: 'CO₂ pattern (4+2+10 s)' },
-]
 
 // ── Composant principal ────────────────────────────────────────────────────────
 
@@ -39,7 +34,7 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
   const [seriesCount,     setSeriesCount]     = useState(initialTable?.seriesCount ?? 8)
   const [referenceMaxS,   setReferenceMaxS]   = useState(initialTable?.referenceMaxS ?? 90)
   const [formeFactor,     setFormeFactor]     = useState(initialTable?.formeFactor ?? 0)
-  const [recoveryPattern, setRecoveryPattern] = useState<RecoveryPattern>(
+  const [recoveryPattern] = useState<RecoveryPattern>(
     initialTable?.recoveryPattern ?? 'soupir',
   )
   const [rows,            setRows]            = useState<TableRow[]>(

@@ -17,8 +17,9 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Play, Square, RotateCcw, Wind, CheckCircle2, SkipForward, Pencil, Check, Flag, Volume2, VolumeX, Plus, Trash2 } from 'lucide-react'
+import { Play, Square, RotateCcw, Wind, CheckCircle2, SkipForward, Pencil, Check, Flag, Volume2, VolumeX, Plus, Trash2, Heart } from 'lucide-react'
 import { PageContainer } from '@modules/theme'
+import { useSettingsStore } from '@modules/settings'
 import { useVoiceGuideStore, useSoundStore, useRiverStore, useDroneStore, BreathCircle, useBreathStore, BreathClock } from '@modules/breath-engine'
 import { BreathVoiceGuide, estimatePreparationDuration } from '@modules/breath-engine/voice/BreathVoiceGuide'
 import { saveFreeTimerSession, getBestFreeTimerSession } from '../services/freeTimerWriter'
@@ -530,6 +531,8 @@ function SoundRow({ label, enabled, volume, onToggle, onVolume }: {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function FreeTimerPage() {
+  const { settings, load: loadSettings, toggleWarmupFavorite } = useSettingsStore()
+
   const [phase,          setPhase]          = useState<TimerPhase>('idle')
   const [mode,           setMode]           = useState<TimerMode>('apnea')
   const [displayMs,      setDisplayMs]      = useState(0)
@@ -632,6 +635,8 @@ export function FreeTimerPage() {
       warmupClockRef.current?.stop()
     }
   }, [])
+
+  useEffect(() => { void loadSettings() }, [loadSettings])
 
   // ── Wake Lock + NoSleep — empêche le verrouillage écran ─────────────────────
   const { enable: noSleepEnable, disable: noSleepDisable } = useNoSleep()
@@ -1037,6 +1042,8 @@ export function FreeTimerPage() {
             setCustomWarmups((prev) => prev.filter((w) => w.id !== id))
             if (selectedCustomId === id) setSelectedCustomId(null)
           }}
+          favoriteWarmupIds={settings.favoriteWarmupIds ?? []}
+          onToggleWarmupFavorite={toggleWarmupFavorite}
           onStart={() => {
             if (mode === 'apnea') {
               if (warmupTab === 'custom' && selectedCustomId) {
@@ -1164,21 +1171,24 @@ function IdleView({
   warmupTab, onWarmupTabChange,
   customWarmups, selectedCustomId, onSelectCustom,
   onCreateCustom, onEditCustom, onDeleteCustom,
+  favoriteWarmupIds, onToggleWarmupFavorite,
   onStart,
 }: {
-  mode:              TimerMode
-  onModeChange:      (m: TimerMode) => void
-  warmupSeconds:     number
-  onWarmupChange:    (s: number) => void
-  warmupTab:         'presets' | 'custom'
-  onWarmupTabChange: (t: 'presets' | 'custom') => void
-  customWarmups:     CustomWarmup[]
-  selectedCustomId:  string | null
-  onSelectCustom:    (id: string) => void
-  onCreateCustom:    () => void
-  onEditCustom:      (w: CustomWarmup) => void
-  onDeleteCustom:    (id: string) => Promise<void>
-  onStart:           () => void
+  mode:                    TimerMode
+  onModeChange:            (m: TimerMode) => void
+  warmupSeconds:           number
+  onWarmupChange:          (s: number) => void
+  warmupTab:               'presets' | 'custom'
+  onWarmupTabChange:       (t: 'presets' | 'custom') => void
+  customWarmups:           CustomWarmup[]
+  selectedCustomId:        string | null
+  onSelectCustom:          (id: string) => void
+  onCreateCustom:          () => void
+  onEditCustom:            (w: CustomWarmup) => void
+  onDeleteCustom:          (id: string) => Promise<void>
+  favoriteWarmupIds:       string[]
+  onToggleWarmupFavorite:  (id: string) => Promise<void>
+  onStart:                 () => void
 }) {
   const canStart = mode === 'free'
     || warmupTab === 'presets'
@@ -1273,6 +1283,12 @@ function IdleView({
                             {w.name}
                           </span>
                           <span className="text-xs text-white/40 shrink-0">{durLabel}</span>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); void onToggleWarmupFavorite(w.id) }}
+                            className={`p-1 transition-colors ${favoriteWarmupIds.includes(w.id) ? 'text-status-error' : 'text-white/30 hover:text-status-error'}`}
+                          >
+                            <Heart size={11} className={favoriteWarmupIds.includes(w.id) ? 'fill-status-error' : ''} />
+                          </button>
                           <button
                             onClick={(e) => { e.stopPropagation(); onEditCustom(w) }}
                             className="p-1 text-white/30 hover:text-white/70 transition-colors"

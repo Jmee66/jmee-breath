@@ -30,53 +30,7 @@ function makeHoldExercise(holdS: number, label: string): Exercise {
   }
 }
 
-/** Crée un Exercise "récupération" cyclique pour N secondes. */
-function makeRecoveryExercise(recoveryS: number, pattern: ApneaTable['recoveryPattern']): Exercise {
-  let phases: Phase[]
-  let cycleS: number
-
-  switch (pattern) {
-    case '6-6-12':
-      phases  = [
-        { type: 'inhale', durationSeconds: 6 } as Phase,
-        { type: 'hold',   durationSeconds: 6 } as Phase,
-        { type: 'exhale', durationSeconds: 12 } as Phase,
-      ]
-      cycleS = 24
-      break
-    case 'co2-pattern':
-      phases  = [
-        { type: 'inhale', durationSeconds: 4 } as Phase,
-        { type: 'hold',   durationSeconds: 2 } as Phase,
-        { type: 'exhale', durationSeconds: 10 } as Phase,
-      ]
-      cycleS = 16
-      break
-    default: // soupir
-      phases  = [
-        { type: 'inhale', durationSeconds: 3 } as Phase,
-        { type: 'exhale', durationSeconds: 7 } as Phase,
-      ]
-      cycleS = 10
-  }
-
-  const reps = Math.max(1, Math.ceil(recoveryS / cycleS))
-  return {
-    id: `table-recovery-${recoveryS}`,
-    name: 'Récupération',
-    description: '',
-    category: 'preparation',
-    difficulty: 1,
-    tags: [],
-    phases,
-    repetitions: reps,
-    restBetweenRepsSeconds: 0,
-    isPreset: true,
-    createdAt: '',
-    updatedAt: '',
-    customPresets: [],
-  }
-}
+// La récupération CO₂/O₂ est une ventilation libre (pas de BreathClock imposé).
 
 // ── Constantes custom ─────────────────────────────────────────────────────────
 
@@ -206,9 +160,18 @@ export function TableRunner({ table, onDone }: Props) {
   ) => {
     stopClock()
 
-    const exercise = type === 'hold'
-      ? makeHoldExercise(durationS, `Série ${rowIndex + 1}/${table.rows.length}`)
-      : makeRecoveryExercise(durationS, table.recoveryPattern)
+    if (type === 'recovery') {
+      // Ventilation libre — pas de BreathClock, juste le store en état recovery
+      const totalRows = table.type === 'custom' ? (table.customSeriesCount ?? 1) : table.rows.length
+      void totalRows  // utilisé dans le label affiché dans le tick
+      breathStore.getState().setPhaseComplete('exhale', 'recovery', durationS)
+      // clockRef reste null — le tick master mettra à jour setProgress manuellement
+      return
+    }
+
+    // ── Hold : BreathClock classique ──────────────────────────────────────────
+    const totalRows = table.type === 'custom' ? (table.customSeriesCount ?? 1) : table.rows.length
+    const exercise = makeHoldExercise(durationS, `Série ${rowIndex + 1}/${totalRows}`)
 
     const snd = useSoundStore.getState()
     const drn = useDroneStore.getState()
@@ -244,7 +207,7 @@ export function TableRunner({ table, onDone }: Props) {
     )
     clockRef.current = clock
     void clock.start(exercise, prepDuration)
-  }, [stopClock, table.rows.length, table.recoveryPattern, breathStore])
+  }, [stopClock, table, breathStore])
 
   // ── Master tick ─────────────────────────────────────────────────────────────
   const tick = useCallback(() => {
@@ -278,6 +241,12 @@ export function TableRunner({ table, onDone }: Props) {
 
     const segRemaining = seg.endS - elapsedS
     const totalRows    = table.type === 'custom' ? (table.customSeriesCount ?? 0) : table.rows.length
+
+    // Ventilation libre (recovery sans BreathClock) : mettre à jour la progression manuellement
+    if (seg.type === 'recovery' && clockRef.current === null) {
+      const segProgress = 1 - (segRemaining / (seg.endS - seg.startS))
+      breathStore.getState().setProgress(Math.min(1, Math.max(0, segProgress)))
+    }
 
     let phaseLabel: string
     let instruction: string

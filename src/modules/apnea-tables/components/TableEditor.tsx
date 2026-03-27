@@ -329,29 +329,12 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
               </div>
             )}
 
-            {/* Récupération */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-                Respiration récupération
-              </label>
-              <div className="space-y-1.5">
-                {RECOVERY_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setRecoveryPattern(opt.value)}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-sm transition-colors ${
-                      recoveryPattern === opt.value
-                        ? 'bg-accent/10 border-accent/40 text-text-primary'
-                        : 'bg-bg-elevated border-border text-text-muted hover:text-text-primary'
-                    }`}
-                  >
-                    <span>{opt.label}</span>
-                    <span className="text-[11px] text-text-muted">
-                      {RECOVERY_CYCLE_S[opt.value]}s / cycle
-                    </span>
-                  </button>
-                ))}
-              </div>
+            {/* Info récupération libre */}
+            <div className="rounded-xl bg-bg-elevated border border-border px-4 py-3">
+              <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">Récupération</p>
+              <p className="text-xs text-text-muted leading-relaxed">
+                Ventilation libre — aucun modèle imposé. Le chrono décompte, respire à ton rythme.
+              </p>
             </div>
 
             {/* Aperçu / éditeur manuel */}

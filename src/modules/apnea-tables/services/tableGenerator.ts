@@ -17,37 +17,51 @@ export const RECOVERY_CYCLE_S: Record<RecoveryPattern, number> = {
 // ── Algorithmes de génération ──────────────────────────────────────────────────
 
 /**
- * CO2 Table :
- *   hold constant = 50 % de refMaxS
- *   récup décroissante : commence à max(2×hold, 120s), diminue de 15 s/série
- *   → travail sur la tolérance au CO₂ (taux élevé en fin)
+ * CO₂ Table — best practice 2024 (Apnea Academy / Pelizzari / Adam Stern)
+ *
+ *   Hold constant    = 50 % du PB (arrondi 5 s)
+ *   Récup start      = hold × 1.5, arrondi à 15 s, borné [1:30 – 2:30]
+ *   Step             = 15 s fixe (standard international)
+ *   Récup minimum    = 30 s (sécurité hypoxie)
+ *
+ *   Objectif : le CO₂ ne se vide jamais complètement → tolérance progressive.
+ *   Ratio 1:1.5 en début de table vs 1:0.35 en fin → stress CO₂ croissant.
  */
 function generateCO2Rows(refMaxS: number, series: number): TableRow[] {
-  const holdS = Math.round(refMaxS * 0.50 / 5) * 5        // arrondi 5s
-  const startRecoveryS = Math.max(holdS * 2, 120)
-  const stepS = Math.round((startRecoveryS - 15) / Math.max(series - 1, 1) / 5) * 5
+  const holdS = Math.round(refMaxS * 0.50 / 5) * 5
+
+  // Récup start : hold × 1.5, arrondi au multiple de 15s le plus proche, borné [90s, 150s]
+  const rawStart       = holdS * 1.5
+  const startRecoveryS = Math.round(Math.min(150, Math.max(rawStart, 90)) / 15) * 15
+
+  const STEP        = 15                   // secondes — fixe, standard
+  const MIN_RECOVERY = 30                  // sécurité absolue
 
   return Array.from({ length: series }, (_, i) => ({
     holdS,
-    recoveryS: Math.max(15, startRecoveryS - i * stepS),
+    recoveryS: Math.max(MIN_RECOVERY, startRecoveryS - i * STEP),
   }))
 }
 
 /**
- * O2 Table :
- *   récup constante = 120 s (2 min)
- *   hold croissant : de 50 % à 90 % de refMaxS
- *   → travail sur la capacité (O₂ qui diminue progressivement)
+ * O₂ Table — best practice 2024
+ *
+ *   Récup constante  = 2:00 (120 s) — permet la vidange CO₂, maintient la fatigue O₂
+ *   Hold croissant   = 50 % → 80 % du PB (arrondi 5 s)
+ *   Step             = réparti uniformément sur les séries
+ *
+ *   Objectif : chaque hold entame davantage les réserves O₂.
+ *   80 % max (vs 90 % précédent) = progression physiologiquement sûre.
  */
 function generateO2Rows(refMaxS: number, series: number): TableRow[] {
-  const recoveryS  = 120
+  const RECOVERY_S = 120                                          // 2:00 fixe
   const startHoldS = Math.round(refMaxS * 0.50 / 5) * 5
-  const endHoldS   = Math.round(refMaxS * 0.90 / 5) * 5
+  const endHoldS   = Math.round(refMaxS * 0.80 / 5) * 5          // 80 % max (était 90 %)
   const step       = Math.round((endHoldS - startHoldS) / Math.max(series - 1, 1) / 5) * 5
 
   return Array.from({ length: series }, (_, i) => ({
     holdS:     Math.min(endHoldS, startHoldS + i * step),
-    recoveryS,
+    recoveryS: RECOVERY_S,
   }))
 }
 

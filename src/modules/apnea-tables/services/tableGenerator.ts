@@ -1,4 +1,4 @@
-import type { TableRow, TableType, RecoveryPattern, ApneaTable } from '../types'
+import type { TableRow, TableType, RecoveryPattern, ApneaTable, CustomPhase, CustomPhaseType } from '../types'
 
 // ── Constantes de génération ───────────────────────────────────────────────────
 
@@ -51,32 +51,18 @@ function generateO2Rows(refMaxS: number, series: number): TableRow[] {
   }))
 }
 
-/**
- * Mix Table :
- *   Première moitié : CO2 (hold fixe, récup décroissante)
- *   Seconde moitié  : O2 (hold croissant, récup fixe)
- */
-function generateMixRows(refMaxS: number, series: number): TableRow[] {
-  const half  = Math.ceil(series / 2)
-  const half2 = series - half
-  return [
-    ...generateCO2Rows(refMaxS, half),
-    ...generateO2Rows(refMaxS, half2),
-  ]
-}
-
 // ── Entrée publique ────────────────────────────────────────────────────────────
 
 /**
- * Génère les lignes d'une table apnée.
+ * Génère les lignes d'une table CO2 ou O2.
  *
- * @param type         co2 | o2 | mix
+ * @param type         co2 | o2
  * @param referenceMaxS  Référence max (PB ou personnalisée, en secondes)
  * @param formeFactor  Facteur forme du jour (−0.3 → +0.2). Modifie refMaxS.
  * @param series       Nombre de séries (défaut : 8)
  */
 export function generateRows(
-  type:          TableType,
+  type:          Exclude<TableType, 'custom'>,
   referenceMaxS: number,
   formeFactor    = 0,
   series         = DEFAULT_SERIES,
@@ -85,8 +71,39 @@ export function generateRows(
   switch (type) {
     case 'co2': return generateCO2Rows(effectiveRef, series)
     case 'o2':  return generateO2Rows(effectiveRef, series)
-    case 'mix': return generateMixRows(effectiveRef, series)
   }
+}
+
+// ── Phases custom par défaut ───────────────────────────────────────────────────
+
+export const CUSTOM_PHASE_CONFIG: Record<CustomPhaseType, {
+  label:      string
+  color:      string
+  defaultS:   number
+  defaultDesc: string
+  breathDriven: boolean   // true = BreathClock géré, false = timer + texte libre
+}> = {
+  prep:        { label: 'Préparation',  color: '#4a5568', defaultS: 30,  defaultDesc: 'Détends-toi, prépare-toi mentalement', breathDriven: false },
+  inhale:      { label: 'Inspiration',  color: '#1a85c2', defaultS: 6,   defaultDesc: 'Inspire lentement — ventre, côtes, thorax', breathDriven: true  },
+  hold:        { label: 'Rétention',    color: '#7561af', defaultS: 60,  defaultDesc: 'Rétention plein poumon, détends-toi', breathDriven: true  },
+  exhale:      { label: 'Expiration',   color: '#9d7ec4', defaultS: 6,   defaultDesc: 'Expire doucement — thorax, côtes, ventre', breathDriven: true  },
+  recovery:    { label: 'Récupération', color: '#34d399', defaultS: 120, defaultDesc: 'Respire librement, récupère', breathDriven: false },
+  ventilation: { label: 'Ventilation',  color: '#2dd4bf', defaultS: 30,  defaultDesc: 'Ventilation active, inspire profond', breathDriven: false },
+}
+
+/** Génère le template de phases par défaut pour une table custom. */
+export function defaultCustomPhases(): CustomPhase[] {
+  return (['prep', 'inhale', 'hold', 'exhale', 'recovery'] as CustomPhaseType[]).map((type) => ({
+    type,
+    durationS:   CUSTOM_PHASE_CONFIG[type].defaultS,
+    description: CUSTOM_PHASE_CONFIG[type].defaultDesc,
+    enabled:     true,
+  }))
+}
+
+/** Durée totale d'une série custom (phases actives). */
+export function customSeriesDuration(phases: CustomPhase[]): number {
+  return phases.filter((p) => p.enabled).reduce((acc, p) => acc + p.durationS, 0)
 }
 
 /**

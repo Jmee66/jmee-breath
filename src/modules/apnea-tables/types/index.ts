@@ -1,29 +1,57 @@
 // ── Types du module Table Apnée ───────────────────────────────────────────────
 
-export type TableType = 'co2' | 'o2' | 'mix'
+export type TableType = 'co2' | 'o2' | 'custom'
 export type RecoveryPattern = 'soupir' | '6-6-12' | 'co2-pattern'
+
+// ── Table standard (CO2 / O2) ──────────────────────────────────────────────────
 
 export interface TableRow {
   holdS:     number   // durée rétention (secondes)
   recoveryS: number   // durée récupération (secondes)
 }
 
+// ── Table Custom ───────────────────────────────────────────────────────────────
+
+export type CustomPhaseType =
+  | 'prep'
+  | 'inhale'
+  | 'hold'
+  | 'exhale'
+  | 'recovery'
+  | 'ventilation'
+
+export interface CustomPhase {
+  type:        CustomPhaseType
+  durationS:   number
+  description: string   // texte libre — affiché pendant la phase
+  enabled:     boolean
+}
+
+export interface CustomTableRow {
+  phases: CustomPhase[]
+}
+
+// ── Table unifiée ──────────────────────────────────────────────────────────────
+
 export interface ApneaTable {
-  id:              string
-  name:            string
-  type:            TableType
+  id:   string
+  name: string
+  type: TableType
+
+  // CO2 / O2 : séries standard hold + récup
   rows:            TableRow[]
-  /** Référence utilisée pour la génération automatique (PB ou custom) */
   referenceMaxS:   number
-  /** Nombre de séries */
   seriesCount:     number
-  /** Motif de respiration pendant la récupération */
   recoveryPattern: RecoveryPattern
-  /** Facteur forme du jour : −0.3 → +0.2, défaut 0 */
   formeFactor:     number
-  createdAt:       string
-  updatedAt:       string
-  syncedAt:        string | null
+
+  // Custom : template de phases + N séries identiques
+  customPhases?:   CustomPhase[]
+  customSeriesCount?: number
+
+  createdAt:  string
+  updatedAt:  string
+  syncedAt:   string | null
 }
 
 // ── État du runner ─────────────────────────────────────────────────────────────
@@ -31,11 +59,11 @@ export interface ApneaTable {
 export type RunnerPhase = 'idle' | 'countdown' | 'hold' | 'recovery' | 'rest' | 'done'
 
 export interface RunnerState {
-  phase:       RunnerPhase
-  rowIndex:    number         // séries 0-based
-  totalRows:   number
+  phase:           RunnerPhase
+  rowIndex:        number
+  totalRows:       number
   phaseRemainingS: number
   phaseTotalS:     number
-  phaseProgress:   number     // 0-1
-  totalProgress:   number     // 0-1
+  phaseProgress:   number   // 0–1
+  totalProgress:   number   // 0–1
 }

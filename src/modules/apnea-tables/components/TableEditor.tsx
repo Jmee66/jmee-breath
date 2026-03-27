@@ -1,17 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ArrowLeft, Wand2, Sliders, RefreshCw } from 'lucide-react'
-import type { ApneaTable, TableType, RecoveryPattern, TableRow } from '../types'
+import { ArrowLeft, Wand2, Sliders, RefreshCw, LayoutList, ChevronDown, ChevronUp } from 'lucide-react'
+import type { ApneaTable, TableType, RecoveryPattern, TableRow, CustomPhase, CustomPhaseType } from '../types'
 import {
   generateRows, totalTableDuration, fmtTime,
-  getPersonalBest, RECOVERY_CYCLE_S,
+  getPersonalBest, RECOVERY_CYCLE_S, CUSTOM_PHASE_CONFIG, defaultCustomPhases, customSeriesDuration,
 } from '../services/tableGenerator'
 
 // ── Constantes UI ─────────────────────────────────────────────────────────────
 
 const TYPE_OPTIONS: { value: TableType; label: string; desc: string }[] = [
-  { value: 'co2', label: 'CO₂', desc: 'Hold fixe · récup décroissante · travail tolérance CO₂' },
-  { value: 'o2',  label: 'O₂',  desc: 'Hold croissant · récup fixe · travail capacité' },
-  { value: 'mix', label: 'Mix', desc: 'Première moitié CO₂, seconde moitié O₂' },
+  { value: 'co2',    label: 'CO₂',    desc: 'Hold fixe · récup décroissante · tolérance CO₂' },
+  { value: 'o2',     label: 'O₂',     desc: 'Hold croissant · récup fixe · capacité' },
+  { value: 'custom', label: 'Custom', desc: 'Table libre — définis chaque phase toi-même' },
 ]
 
 const RECOVERY_OPTIONS: { value: RecoveryPattern; label: string }[] = [
@@ -20,7 +20,9 @@ const RECOVERY_OPTIONS: { value: RecoveryPattern; label: string }[] = [
   { value: 'co2-pattern', label: 'CO₂ pattern (4+2+10 s)' },
 ]
 
-// ── Composant ─────────────────────────────────────────────────────────────────
+const PHASE_ORDER: CustomPhaseType[] = ['prep', 'inhale', 'hold', 'exhale', 'recovery', 'ventilation']
+
+// ── Composant principal ────────────────────────────────────────────────────────
 
 interface Props {
   initialTable?: ApneaTable
@@ -44,10 +46,15 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
   const [rows,            setRows]            = useState<TableRow[]>(
     initialTable?.rows ?? generateRows('co2', 90, 0, 8),
   )
+  const [customPhases,    setCustomPhases]    = useState<CustomPhase[]>(
+    initialTable?.customPhases ?? defaultCustomPhases(),
+  )
+  const [customSeries,    setCustomSeries]    = useState(initialTable?.customSeriesCount ?? 6)
 
   // ── Personal Best ───────────────────────────────────────────────────────────
-  const [pb,    setPb]    = useState<number | null>(null)
+  const [pb,      setPb]      = useState<number | null>(null)
   const [refMode, setRefMode] = useState<'pb' | 'custom'>('custom')
+  const [saving,  setSaving]  = useState(false)
 
   useEffect(() => {
     void getPersonalBest().then((v) => {
@@ -61,13 +68,14 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
 
   // ── Génération auto ─────────────────────────────────────────────────────────
   const regenerate = useCallback(() => {
-    setRows(generateRows(type, referenceMaxS, formeFactor, seriesCount))
+    if (type !== 'custom') {
+      setRows(generateRows(type, referenceMaxS, formeFactor, seriesCount))
+    }
   }, [type, referenceMaxS, formeFactor, seriesCount])
 
-  // Regénère dès qu'un param change (mode auto)
   useEffect(() => {
-    if (configMode === 'auto') regenerate()
-  }, [configMode, regenerate])
+    if (configMode === 'auto' && type !== 'custom') regenerate()
+  }, [configMode, regenerate, type])
 
   // ── Édition manuelle d'une ligne ────────────────────────────────────────────
   function updateRow(i: number, field: keyof TableRow, value: number) {
@@ -82,21 +90,57 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
     setRows((prev) => prev.filter((_, idx) => idx !== i))
   }
 
-  // ── Enregistrement ──────────────────────────────────────────────────────────
-  const [saving, setSaving] = useState(false)
+  // ── Édition phases custom ───────────────────────────────────────────────────
+  function updatePhase(phaseType: CustomPhaseType, field: keyof CustomPhase, value: string | number | boolean) {
+    setCustomPhases((prev) => prev.map((p) => p.type === phaseType ? { ...p, [field]: value } : p))
+  }
 
+  function togglePhase(phaseType: CustomPhaseType) {
+    setCustomPhases((prev) => {
+      const existing = prev.find((p) => p.type === phaseType)
+      if (existing) {
+        return prev.map((p) => p.type === phaseType ? { ...p, enabled: !p.enabled } : p)
+      }
+      // Phase absente → l'ajouter avec les valeurs par défaut
+      const cfg = CUSTOM_PHASE_CONFIG[phaseType]
+      const newPhase: CustomPhase = {
+        type:        phaseType,
+        durationS:   cfg.defaultS,
+        description: cfg.defaultDesc,
+        enabled:     true,
+      }
+      return [...prev, newPhase]
+    })
+  }
+
+  // ── Enregistrement ──────────────────────────────────────────────────────────
   async function handleSave() {
     if (!name.trim()) return
     setSaving(true)
     try {
-      await onSave({ name: name.trim(), type, rows, referenceMaxS, seriesCount, recoveryPattern, formeFactor })
+      await onSave({
+        name: name.trim(),
+        type,
+        rows,
+        referenceMaxS,
+        seriesCount,
+        recoveryPattern,
+        formeFactor,
+        customPhases:      type === 'custom' ? customPhases : undefined,
+        customSeriesCount: type === 'custom' ? customSeries : undefined,
+      })
     } finally {
       setSaving(false)
     }
   }
 
-  const totalS  = totalTableDuration(rows)
-  const maxHold = Math.max(...rows.map((r) => r.holdS), 1)
+  const totalS  = type === 'custom'
+    ? customSeriesDuration(customPhases) * customSeries
+    : totalTableDuration(rows)
+
+  const maxHold = type !== 'custom'
+    ? Math.max(...rows.map((r) => r.holdS), 1)
+    : 1
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -155,200 +199,349 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
           </p>
         </div>
 
-        {/* Mode config */}
-        <div className="space-y-3">
-          <label className="text-xs font-semibold uppercase tracking-wide text-text-muted">Configuration</label>
-          <div className="flex rounded-xl overflow-hidden border border-border">
-            {[
-              { value: 'auto',   label: 'Auto',    icon: Wand2 },
-              { value: 'manual', label: 'Manuel', icon: Sliders },
-            ].map(({ value, label, icon: Icon }) => (
-              <button
-                key={value}
-                onClick={() => setConfigMode(value as 'auto' | 'manual')}
-                className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold transition-colors ${
-                  configMode === value
-                    ? 'bg-accent text-white'
-                    : 'bg-bg-overlay text-text-muted hover:text-text-primary'
-                }`}
-              >
-                <Icon size={14} />
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
+        {/* Éditeur custom */}
+        {type === 'custom' && (
+          <CustomEditor
+            phases={customPhases}
+            seriesCount={customSeries}
+            totalS={totalS}
+            onPhaseChange={updatePhase}
+            onTogglePhase={togglePhase}
+            onSeriesCountChange={setCustomSeries}
+          />
+        )}
 
-        {/* Paramètres auto */}
-        {configMode === 'auto' && (
-          <div className="space-y-4 rounded-xl bg-bg-elevated border border-border p-4">
-
-            {/* Référence */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-text-muted uppercase tracking-wide">
-                  Référence max
-                </label>
-                {pb && (
+        {/* Config standard (CO2 / O2) */}
+        {type !== 'custom' && (
+          <>
+            {/* Mode config */}
+            <div className="space-y-3">
+              <label className="text-xs font-semibold uppercase tracking-wide text-text-muted">Configuration</label>
+              <div className="flex rounded-xl overflow-hidden border border-border">
+                {[
+                  { value: 'auto',   label: 'Auto',   icon: Wand2 },
+                  { value: 'manual', label: 'Manuel', icon: Sliders },
+                ].map(({ value, label, icon: Icon }) => (
                   <button
-                    onClick={() => { setRefMode('pb'); setReferenceMaxS(pb) }}
-                    className={`text-[11px] px-2 py-0.5 rounded-lg border transition-colors ${
-                      refMode === 'pb'
-                        ? 'bg-accent/20 border-accent/40 text-accent'
-                        : 'bg-bg-overlay border-border text-text-muted'
+                    key={value}
+                    onClick={() => setConfigMode(value as 'auto' | 'manual')}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold transition-colors ${
+                      configMode === value
+                        ? 'bg-accent text-white'
+                        : 'bg-bg-overlay text-text-muted hover:text-text-primary'
                     }`}
                   >
-                    PB {fmtTime(pb)}
+                    <Icon size={14} />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Paramètres auto */}
+            {configMode === 'auto' && (
+              <div className="space-y-4 rounded-xl bg-bg-elevated border border-border p-4">
+
+                {/* Référence */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-text-muted uppercase tracking-wide">
+                      Référence max
+                    </label>
+                    {pb && (
+                      <button
+                        onClick={() => { setRefMode('pb'); setReferenceMaxS(pb) }}
+                        className={`text-[11px] px-2 py-0.5 rounded-lg border transition-colors ${
+                          refMode === 'pb'
+                            ? 'bg-accent/20 border-accent/40 text-accent'
+                            : 'bg-bg-overlay border-border text-text-muted'
+                        }`}
+                      >
+                        PB {fmtTime(pb)}
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min={20} max={360} step={5}
+                      value={referenceMaxS}
+                      onChange={(e) => { setRefMode('custom'); setReferenceMaxS(Number(e.target.value)) }}
+                      className="flex-1 accent-accent"
+                    />
+                    <span className="w-14 text-right text-sm font-mono text-text-primary">
+                      {fmtTime(referenceMaxS)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Séries */}
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-text-muted uppercase tracking-wide">
+                    Séries
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setSeriesCount((n) => Math.max(2, n - 1))}
+                      className="h-7 w-7 rounded-lg bg-bg-overlay text-white/70 font-bold text-xs"
+                    >−</button>
+                    <span className="w-6 text-center text-sm font-mono text-text-primary">{seriesCount}</span>
+                    <button
+                      onClick={() => setSeriesCount((n) => Math.min(16, n + 1))}
+                      className="h-7 w-7 rounded-lg bg-bg-overlay text-white/70 font-bold text-xs"
+                    >+</button>
+                  </div>
+                </div>
+
+                {/* Forme du jour */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-text-muted uppercase tracking-wide">
+                      Forme du jour
+                    </label>
+                    <span className={`text-sm font-mono font-bold ${
+                      formeFactor > 0 ? 'text-green-400' : formeFactor < 0 ? 'text-orange-400' : 'text-text-muted'
+                    }`}>
+                      {formeFactor > 0 ? '+' : ''}{Math.round(formeFactor * 100)} %
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={-30} max={20} step={5}
+                    value={Math.round(formeFactor * 100)}
+                    onChange={(e) => setFormeFactor(Number(e.target.value) / 100)}
+                    className="w-full accent-accent"
+                  />
+                  <div className="flex justify-between text-[10px] text-text-muted">
+                    <span>Journée difficile</span>
+                    <span>Forme normale</span>
+                    <span>Très bonne forme</span>
+                  </div>
+                </div>
+
+                {/* Recap ref effective */}
+                <p className="text-[11px] text-text-muted text-center pt-1">
+                  Référence effective :{' '}
+                  <span className="font-semibold text-text-secondary">
+                    {fmtTime(Math.round(referenceMaxS * (1 + formeFactor)))}
+                  </span>
+                </p>
+              </div>
+            )}
+
+            {/* Récupération */}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+                Respiration récupération
+              </label>
+              <div className="space-y-1.5">
+                {RECOVERY_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setRecoveryPattern(opt.value)}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-sm transition-colors ${
+                      recoveryPattern === opt.value
+                        ? 'bg-accent/10 border-accent/40 text-text-primary'
+                        : 'bg-bg-elevated border-border text-text-muted hover:text-text-primary'
+                    }`}
+                  >
+                    <span>{opt.label}</span>
+                    <span className="text-[11px] text-text-muted">
+                      {RECOVERY_CYCLE_S[opt.value]}s / cycle
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Aperçu / éditeur manuel */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+                  Table ({rows.length} séries · {fmtTime(totalS)})
+                </label>
+                {configMode === 'auto' && (
+                  <button
+                    onClick={regenerate}
+                    className="flex items-center gap-1 text-[11px] text-accent"
+                  >
+                    <RefreshCw size={11} />
+                    Regénérer
                   </button>
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="range"
-                  min={20} max={360} step={5}
-                  value={referenceMaxS}
-                  onChange={(e) => { setRefMode('custom'); setReferenceMaxS(Number(e.target.value)) }}
-                  className="flex-1 accent-accent"
-                />
-                <span className="w-14 text-right text-sm font-mono text-text-primary">
-                  {fmtTime(referenceMaxS)}
-                </span>
-              </div>
-            </div>
 
-            {/* Séries */}
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-text-muted uppercase tracking-wide">
-                Séries
-              </label>
-              <div className="flex items-center gap-2">
+              {/* Barres hold visuelles */}
+              <div className="flex items-end gap-0.5 h-12 bg-bg-elevated rounded-xl p-2">
+                {rows.map((row, i) => (
+                  <div
+                    key={i}
+                    className="flex-1 rounded-sm bg-accent/50"
+                    style={{ height: `${Math.max(15, (row.holdS / maxHold) * 100)}%` }}
+                    title={`Hold ${fmtTime(row.holdS)}`}
+                  />
+                ))}
+              </div>
+
+              {/* Lignes éditables */}
+              <div className="space-y-1.5">
+                {rows.map((row, i) => (
+                  <RowEditor
+                    key={i}
+                    index={i}
+                    row={row}
+                    total={rows.length}
+                    editable={configMode === 'manual'}
+                    onChange={(f, v) => updateRow(i, f, v)}
+                    onRemove={() => removeRow(i)}
+                  />
+                ))}
+              </div>
+
+              {configMode === 'manual' && (
                 <button
-                  onClick={() => setSeriesCount((n) => Math.max(2, n - 1))}
-                  className="h-7 w-7 rounded-lg bg-bg-overlay text-white/70 font-bold text-xs"
-                >−</button>
-                <span className="w-6 text-center text-sm font-mono text-text-primary">{seriesCount}</span>
-                <button
-                  onClick={() => setSeriesCount((n) => Math.min(16, n + 1))}
-                  className="h-7 w-7 rounded-lg bg-bg-overlay text-white/70 font-bold text-xs"
-                >+</button>
-              </div>
+                  onClick={addRow}
+                  className="w-full py-2 rounded-xl border border-dashed border-border text-xs text-text-muted hover:text-text-primary hover:border-accent/40 transition-colors"
+                >
+                  + Ajouter une série
+                </button>
+              )}
             </div>
-
-            {/* Forme du jour */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-text-muted uppercase tracking-wide">
-                  Forme du jour
-                </label>
-                <span className={`text-sm font-mono font-bold ${
-                  formeFactor > 0 ? 'text-green-400' : formeFactor < 0 ? 'text-orange-400' : 'text-text-muted'
-                }`}>
-                  {formeFactor > 0 ? '+' : ''}{Math.round(formeFactor * 100)} %
-                </span>
-              </div>
-              <input
-                type="range"
-                min={-30} max={20} step={5}
-                value={Math.round(formeFactor * 100)}
-                onChange={(e) => setFormeFactor(Number(e.target.value) / 100)}
-                className="w-full accent-accent"
-              />
-              <div className="flex justify-between text-[10px] text-text-muted">
-                <span>Journée difficile</span>
-                <span>Forme normale</span>
-                <span>Très bonne forme</span>
-              </div>
-            </div>
-
-            {/* Recap ref effective */}
-            <p className="text-[11px] text-text-muted text-center pt-1">
-              Référence effective :{' '}
-              <span className="font-semibold text-text-secondary">
-                {fmtTime(Math.round(referenceMaxS * (1 + formeFactor)))}
-              </span>
-            </p>
-          </div>
+          </>
         )}
 
-        {/* Récupération */}
-        <div className="space-y-2">
-          <label className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-            Respiration récupération
-          </label>
-          <div className="space-y-1.5">
-            {RECOVERY_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => setRecoveryPattern(opt.value)}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-sm transition-colors ${
-                  recoveryPattern === opt.value
-                    ? 'bg-accent/10 border-accent/40 text-text-primary'
-                    : 'bg-bg-elevated border-border text-text-muted hover:text-text-primary'
-                }`}
-              >
-                <span>{opt.label}</span>
-                <span className="text-[11px] text-text-muted">
-                  {RECOVERY_CYCLE_S[opt.value]}s / cycle
+      </div>
+    </div>
+  )
+}
+
+// ── CustomEditor ───────────────────────────────────────────────────────────────
+
+function CustomEditor({
+  phases, seriesCount, totalS, onPhaseChange, onTogglePhase, onSeriesCountChange,
+}: {
+  phases:               CustomPhase[]
+  seriesCount:          number
+  totalS:               number
+  onPhaseChange:        (phaseType: CustomPhaseType, field: keyof CustomPhase, value: string | number | boolean) => void
+  onTogglePhase:        (phaseType: CustomPhaseType) => void
+  onSeriesCountChange:  (n: number) => void
+}) {
+  const [expanded, setExpanded] = useState<CustomPhaseType | null>(null)
+
+  const phaseMap = new Map(phases.map((p) => [p.type, p]))
+
+  return (
+    <div className="space-y-4">
+
+      {/* Séries */}
+      <div className="flex items-center justify-between rounded-xl bg-bg-elevated border border-border px-4 py-3">
+        <div>
+          <span className="text-sm font-semibold text-text-primary">Séries</span>
+          <span className="ml-2 text-xs text-text-muted">{fmtTime(totalS)} total</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onSeriesCountChange(Math.max(1, seriesCount - 1))}
+            className="h-7 w-7 rounded-lg bg-bg-overlay text-white/70 font-bold text-xs"
+          >−</button>
+          <span className="w-6 text-center text-sm font-mono text-text-primary">{seriesCount}</span>
+          <button
+            onClick={() => onSeriesCountChange(Math.min(20, seriesCount + 1))}
+            className="h-7 w-7 rounded-lg bg-bg-overlay text-white/70 font-bold text-xs"
+          >+</button>
+        </div>
+      </div>
+
+      {/* Phases */}
+      <div className="space-y-1.5">
+        <label className="text-xs font-semibold uppercase tracking-wide text-text-muted flex items-center gap-1.5">
+          <LayoutList size={12} />
+          Phases par série
+        </label>
+
+        {PHASE_ORDER.map((phaseType) => {
+          const cfg   = CUSTOM_PHASE_CONFIG[phaseType]
+          const phase = phaseMap.get(phaseType) ?? {
+            type: phaseType,
+            durationS: cfg.defaultS,
+            description: cfg.defaultDesc,
+            enabled: false,
+          }
+          const isExpanded = expanded === phaseType
+
+          return (
+            <div key={phaseType} className="rounded-xl bg-bg-elevated border border-border overflow-hidden">
+              {/* Ligne principale */}
+              <div className="flex items-center gap-3 px-3 py-2.5">
+                {/* Pastille couleur */}
+                <div
+                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: cfg.color }}
+                />
+
+                {/* Toggle enabled */}
+                <button
+                  onClick={() => onTogglePhase(phaseType)}
+                  className={`w-8 h-4.5 rounded-full transition-colors shrink-0 relative ${
+                    phase.enabled ? 'bg-accent' : 'bg-bg-overlay border border-border'
+                  }`}
+                  style={{ width: '2rem', height: '1.1rem' }}
+                >
+                  <span
+                    className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white transition-transform ${
+                      phase.enabled ? 'translate-x-4' : 'translate-x-0.5'
+                    }`}
+                    style={{ width: '0.875rem', height: '0.875rem' }}
+                  />
+                </button>
+
+                {/* Label */}
+                <span className={`flex-1 text-sm ${phase.enabled ? 'text-text-primary' : 'text-text-muted'}`}>
+                  {cfg.label}
                 </span>
-              </button>
-            ))}
-          </div>
-        </div>
 
-        {/* Aperçu / éditeur manuel */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-              Table ({rows.length} séries · {fmtTime(totalS)})
-            </label>
-            {configMode === 'auto' && (
-              <button
-                onClick={regenerate}
-                className="flex items-center gap-1 text-[11px] text-accent"
-              >
-                <RefreshCw size={11} />
-                Regénérer
-              </button>
-            )}
-          </div>
+                {/* Stepper durée (si enabled) */}
+                {phase.enabled && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => onPhaseChange(phaseType, 'durationS', Math.max(1, phase.durationS - 5))}
+                      className="h-6 w-6 rounded-md bg-bg-overlay text-white/70 font-bold text-xs"
+                    >−</button>
+                    <span className="w-10 text-center text-xs font-mono text-text-primary">{phase.durationS}s</span>
+                    <button
+                      onClick={() => onPhaseChange(phaseType, 'durationS', phase.durationS + 5)}
+                      className="h-6 w-6 rounded-md bg-bg-overlay text-white/70 font-bold text-xs"
+                    >+</button>
+                  </div>
+                )}
 
-          {/* Barres hold visuelles */}
-          <div className="flex items-end gap-0.5 h-12 bg-bg-elevated rounded-xl p-2">
-            {rows.map((row, i) => (
-              <div
-                key={i}
-                className="flex-1 rounded-sm bg-accent/50"
-                style={{ height: `${Math.max(15, (row.holdS / maxHold) * 100)}%` }}
-                title={`Hold ${fmtTime(row.holdS)}`}
-              />
-            ))}
-          </div>
+                {/* Bouton expand (si enabled) */}
+                {phase.enabled && (
+                  <button
+                    onClick={() => setExpanded(isExpanded ? null : phaseType)}
+                    className="p-1 text-text-muted hover:text-text-primary"
+                  >
+                    {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+                )}
+              </div>
 
-          {/* Lignes éditables */}
-          <div className="space-y-1.5">
-            {rows.map((row, i) => (
-              <RowEditor
-                key={i}
-                index={i}
-                row={row}
-                total={rows.length}
-                editable={configMode === 'manual'}
-                onChange={(f, v) => updateRow(i, f, v)}
-                onRemove={() => removeRow(i)}
-              />
-            ))}
-          </div>
-
-          {configMode === 'manual' && (
-            <button
-              onClick={addRow}
-              className="w-full py-2 rounded-xl border border-dashed border-border text-xs text-text-muted hover:text-text-primary hover:border-accent/40 transition-colors"
-            >
-              + Ajouter une série
-            </button>
-          )}
-        </div>
-
+              {/* Zone expand : description */}
+              {phase.enabled && isExpanded && (
+                <div className="px-3 pb-3 border-t border-border pt-2.5">
+                  <textarea
+                    rows={2}
+                    value={phase.description}
+                    onChange={(e) => onPhaseChange(phaseType, 'description', e.target.value)}
+                    placeholder="Instructions pour la phase…"
+                    className="w-full bg-bg-overlay rounded-lg px-2.5 py-2 text-xs text-text-primary placeholder:text-white/25 outline-none resize-none border border-border focus:border-accent"
+                  />
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -406,8 +599,8 @@ function RowEditor({
 // ── TimeInput ─────────────────────────────────────────────────────────────────
 
 function TimeInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  const m  = Math.floor(value / 60)
-  const s  = value % 60
+  const m = Math.floor(value / 60)
+  const s = value % 60
 
   function setMin(v: number) { onChange(Math.max(0, v) * 60 + s) }
   function setSec(v: number) { onChange(m * 60 + Math.max(0, Math.min(59, v))) }

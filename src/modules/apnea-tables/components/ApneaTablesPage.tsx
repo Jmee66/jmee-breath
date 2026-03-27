@@ -8,14 +8,14 @@ import { TableEditor } from './TableEditor'
 import { TableRunner } from './TableRunner'
 
 const TYPE_LABEL: Record<ApneaTable['type'], string> = {
-  co2: 'CO₂',
-  o2:  'O₂',
-  mix: 'Mix',
+  co2:    'CO₂',
+  o2:     'O₂',
+  custom: 'Custom',
 }
 const TYPE_COLOR: Record<ApneaTable['type'], string> = {
-  co2: 'text-purple-400 bg-purple-400/10 border-purple-400/20',
-  o2:  'text-blue-400 bg-blue-400/10 border-blue-400/20',
-  mix: 'text-teal-400 bg-teal-400/10 border-teal-400/20',
+  co2:    'text-purple-400 bg-purple-400/10 border-purple-400/20',
+  o2:     'text-blue-400 bg-blue-400/10 border-blue-400/20',
+  custom: 'text-amber-400 bg-amber-400/10 border-amber-400/20',
 }
 
 // ── Composant principal ────────────────────────────────────────────────────────
@@ -82,7 +82,7 @@ export default function ApneaTablesPage() {
       <div className="flex items-center justify-between px-4 pt-6 pb-4">
         <div>
           <h1 className="text-xl font-bold text-text-primary">Tables Apnée</h1>
-          <p className="text-xs text-text-muted mt-0.5">CO₂ · O₂ · Mix</p>
+          <p className="text-xs text-text-muted mt-0.5">CO₂ · O₂ · Custom</p>
         </div>
         <button
           onClick={() => { setEditTarget(null); setView('editor') }}
@@ -147,8 +147,10 @@ function TableCard({
   onEdit:   () => void
   onDelete: () => void
 }) {
-  const total = totalTableDuration(table.rows)
-  const maxHold = Math.max(...table.rows.map((r) => r.holdS))
+  const isCustom   = table.type === 'custom'
+  const total      = totalTableDuration(table.rows)
+  const maxHold    = isCustom ? 1 : Math.max(...table.rows.map((r) => r.holdS), 1)
+  const activePhases = isCustom ? (table.customPhases?.filter((p) => p.enabled).length ?? 0) : 0
 
   return (
     <div className="rounded-2xl bg-bg-elevated border border-border overflow-hidden">
@@ -171,28 +173,43 @@ function TableCard({
       <div className="flex items-center gap-4 px-4 pb-3 text-xs text-text-muted">
         <span className="flex items-center gap-1">
           <Layers size={11} />
-          {table.rows.length} séries
+          {isCustom ? (table.customSeriesCount ?? 0) : table.rows.length} séries
         </span>
         <span className="flex items-center gap-1">
           <Clock size={11} />
-          {fmtTime(total)}
+          {isCustom
+            ? fmtTime((table.customPhases?.filter((p) => p.enabled).reduce((acc, p) => acc + p.durationS, 0) ?? 0) * (table.customSeriesCount ?? 0))
+            : fmtTime(total)
+          }
         </span>
-        <span>Max {fmtTime(maxHold)}</span>
+        {isCustom
+          ? <span>{activePhases} phases</span>
+          : <span>Max {fmtTime(maxHold)}</span>
+        }
       </div>
 
       {/* Mini preview (hold bars) */}
       <div className="flex items-end gap-0.5 px-4 pb-3 h-9">
-        {table.rows.map((row, i) => {
-          const heightPct = maxHold > 0 ? (row.holdS / maxHold) * 100 : 50
-          return (
+        {isCustom ? (
+          // Pour custom : afficher les phases actives comme barres de couleur
+          (table.customPhases?.filter((p) => p.enabled) ?? []).map((phase, i) => (
             <div key={i} className="flex-1 flex flex-col justify-end gap-0.5">
-              <div
-                className="rounded-sm bg-accent/60"
-                style={{ height: `${Math.max(20, heightPct)}%` }}
-              />
+              <div className="rounded-sm" style={{ height: '100%', backgroundColor: 'var(--color-accent, #7561af)' + '99' }} />
             </div>
-          )
-        })}
+          ))
+        ) : (
+          table.rows.map((row, i) => {
+            const heightPct = maxHold > 0 ? (row.holdS / maxHold) * 100 : 50
+            return (
+              <div key={i} className="flex-1 flex flex-col justify-end gap-0.5">
+                <div
+                  className="rounded-sm bg-accent/60"
+                  style={{ height: `${Math.max(20, heightPct)}%` }}
+                />
+              </div>
+            )
+          })
+        )}
       </div>
 
       {/* Actions */}
@@ -227,7 +244,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       </div>
       <p className="text-text-primary font-semibold mb-1">Aucune table</p>
       <p className="text-sm text-text-muted mb-6">
-        Crée une table CO₂, O₂ ou Mix pour entraîner ta tolérance et ta capacité.
+        Crée une table CO₂, O₂ ou Custom pour entraîner ta tolérance et ta capacité.
       </p>
       <button
         onClick={onCreate}

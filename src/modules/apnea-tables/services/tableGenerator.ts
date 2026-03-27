@@ -101,9 +101,11 @@ export function defaultCustomPhases(): CustomPhase[] {
   }))
 }
 
-/** Durée totale d'une série custom (phases actives). */
+/** Durée totale d'une série custom (phases actives, en tenant compte de repeatCount). */
 export function customSeriesDuration(phases: CustomPhase[]): number {
-  return phases.filter((p) => p.enabled).reduce((acc, p) => acc + p.durationS, 0)
+  return phases
+    .filter((p) => p.enabled)
+    .reduce((acc, p) => acc + p.durationS * (p.repeatCount ?? 1), 0)
 }
 
 /**

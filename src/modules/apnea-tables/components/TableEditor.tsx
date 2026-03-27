@@ -418,7 +418,7 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
 // ── CustomEditor ───────────────────────────────────────────────────────────────
 
 function CustomEditor({
-  phases, seriesCount, totalS, onPhaseChange, onTogglePhase, onSeriesCountChange,
+  phases, seriesCount, onPhaseChange, onTogglePhase, onSeriesCountChange,
 }: {
   phases:               CustomPhase[]
   seriesCount:          number
@@ -430,16 +430,23 @@ function CustomEditor({
   const [expanded, setExpanded] = useState<CustomPhaseType | null>(null)
 
   const phaseMap = new Map(phases.map((p) => [p.type, p]))
+  const seriesDuration = customSeriesDuration(phases)
+  const grandTotal = seriesDuration * seriesCount
 
   return (
     <div className="space-y-4">
 
+      {/* Durée totale — bloc dédié */}
+      <div className="rounded-xl bg-bg-elevated border border-border px-4 py-3 space-y-1">
+        <p className="text-xs text-text-muted">
+          {seriesCount} série{seriesCount > 1 ? 's' : ''} × {fmtTime(seriesDuration)} / série
+        </p>
+        <p className="text-lg font-bold text-accent">{fmtTime(grandTotal)}</p>
+      </div>
+
       {/* Séries */}
       <div className="flex items-center justify-between rounded-xl bg-bg-elevated border border-border px-4 py-3">
-        <div>
-          <span className="text-sm font-semibold text-text-primary">Séries</span>
-          <span className="ml-2 text-xs text-text-muted">{fmtTime(totalS)} total</span>
-        </div>
+        <span className="text-sm font-semibold text-text-primary">Séries</span>
         <div className="flex items-center gap-2">
           <button
             onClick={() => onSeriesCountChange(Math.max(1, seriesCount - 1))}
@@ -467,33 +474,38 @@ function CustomEditor({
             durationS: cfg.defaultS,
             description: cfg.defaultDesc,
             enabled: false,
+            repeatCount: 1,
           }
           const isExpanded = expanded === phaseType
+          const repeatCount = phase.repeatCount ?? 1
 
           return (
             <div key={phaseType} className="rounded-xl bg-bg-elevated border border-border overflow-hidden">
               {/* Ligne principale */}
-              <div className="flex items-center gap-3 px-3 py-2.5">
-                {/* Pastille couleur */}
-                <div
-                  className="w-2.5 h-2.5 rounded-full shrink-0"
-                  style={{ backgroundColor: cfg.color }}
-                />
-
-                {/* Toggle enabled */}
+              <div className="flex items-center gap-3 px-3 py-3.5">
+                {/* Pastille + toggle : zone tappable min h-10 */}
                 <button
                   onClick={() => onTogglePhase(phaseType)}
-                  className={`w-8 h-4.5 rounded-full transition-colors shrink-0 relative ${
-                    phase.enabled ? 'bg-accent' : 'bg-bg-overlay border border-border'
-                  }`}
-                  style={{ width: '2rem', height: '1.1rem' }}
+                  className="flex items-center gap-2 min-h-10 shrink-0"
+                  aria-label={`${phase.enabled ? 'Désactiver' : 'Activer'} ${cfg.label}`}
                 >
-                  <span
-                    className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white transition-transform ${
-                      phase.enabled ? 'translate-x-4' : 'translate-x-0.5'
-                    }`}
-                    style={{ width: '0.875rem', height: '0.875rem' }}
+                  <div
+                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: phase.enabled ? cfg.color : 'rgba(255,255,255,0.15)' }}
                   />
+                  <div
+                    className={`relative rounded-full transition-colors shrink-0 ${
+                      phase.enabled ? 'bg-accent' : 'bg-bg-overlay border border-border'
+                    }`}
+                    style={{ width: '2rem', height: '1.1rem' }}
+                  >
+                    <span
+                      className={`absolute top-0.5 rounded-full bg-white transition-transform ${
+                        phase.enabled ? 'translate-x-4' : 'translate-x-0.5'
+                      }`}
+                      style={{ width: '0.875rem', height: '0.875rem' }}
+                    />
+                  </div>
                 </button>
 
                 {/* Label */}
@@ -527,9 +539,25 @@ function CustomEditor({
                 )}
               </div>
 
-              {/* Zone expand : description */}
+              {/* Zone expand : repeatCount + description */}
               {phase.enabled && isExpanded && (
-                <div className="px-3 pb-3 border-t border-border pt-2.5">
+                <div className="px-3 pb-3 border-t border-border pt-2.5 space-y-3">
+                  {/* Stepper repeatCount */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-text-muted">Répéter</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => onPhaseChange(phaseType, 'repeatCount', Math.max(1, repeatCount - 1))}
+                        className="h-6 w-6 rounded-md bg-bg-overlay text-white/70 font-bold text-xs"
+                      >−</button>
+                      <span className="w-14 text-center text-xs font-mono text-text-primary">{repeatCount} fois</span>
+                      <button
+                        onClick={() => onPhaseChange(phaseType, 'repeatCount', Math.min(20, repeatCount + 1))}
+                        className="h-6 w-6 rounded-md bg-bg-overlay text-white/70 font-bold text-xs"
+                      >+</button>
+                    </div>
+                  </div>
+                  {/* Description */}
                   <textarea
                     rows={2}
                     value={phase.description}

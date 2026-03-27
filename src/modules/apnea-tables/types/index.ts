@@ -21,10 +21,11 @@ export type CustomPhaseType =
   | 'ventilation'
 
 export interface CustomPhase {
-  type:        CustomPhaseType
-  durationS:   number
-  description: string   // texte libre — affiché pendant la phase
-  enabled:     boolean
+  type:         CustomPhaseType
+  durationS:    number
+  description:  string   // texte libre — affiché pendant la phase
+  enabled:      boolean
+  repeatCount?: number   // nombre de répétitions de cette phase dans une série (défaut 1)
 }
 
 export interface CustomTableRow {

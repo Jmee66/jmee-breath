@@ -1,7 +1,7 @@
 import { useRef, useCallback, useEffect, useState } from 'react'
 import { X, Pause, Play } from 'lucide-react'
 import type { ApneaTable, RunnerPhase } from '../types'
-import { fmtTime, totalTableDuration } from '../services/tableGenerator'
+import { fmtTime, totalTableDuration, CUSTOM_PHASE_CONFIG } from '../services/tableGenerator'
 import { BreathClock } from '@modules/breath-engine'
 import { BreathVoiceGuide, estimatePreparationDuration } from '@modules/breath-engine/voice/BreathVoiceGuide'
 import { BreathCircle } from '@modules/breath-engine'
@@ -78,6 +78,17 @@ function makeRecoveryExercise(recoveryS: number, pattern: ApneaTable['recoveryPa
   }
 }
 
+// ── Constantes custom ─────────────────────────────────────────────────────────
+
+const CUSTOM_PHASE_LABELS: Record<string, string> = {
+  prep:        'Préparation',
+  inhale:      'Inspiration',
+  hold:        'Rétention',
+  exhale:      'Expiration',
+  recovery:    'Récupération',
+  ventilation: 'Ventilation',
+}
+
 // ── Composant principal ────────────────────────────────────────────────────────
 
 interface Props {
@@ -86,14 +97,16 @@ interface Props {
 }
 
 interface Display {
-  rowIndex:        number
-  totalRows:       number
-  phase:           RunnerPhase
-  phaseLabel:      string
-  instruction:     string
-  phaseRemainingS: number
-  phaseTotalS:     number
-  totalProgress:   number
+  rowIndex:         number
+  totalRows:        number
+  phase:            RunnerPhase
+  phaseLabel:       string
+  instruction:      string
+  description?:     string
+  phaseRemainingS:  number
+  phaseTotalS:      number
+  totalProgress:    number
+  accentColor?:     string
 }
 
 
@@ -112,10 +125,13 @@ export function TableRunner({ table, onDone }: Props) {
   // Séquence aplatie : [row0-hold, row0-recovery, row1-hold, row1-recovery, ...]
   // Chaque segment : { type: 'hold'|'recovery', rowIndex, startS, endS }
   const segmentsRef = useRef<Array<{
-    type: 'hold' | 'recovery'
-    rowIndex: number
-    startS: number
-    endS: number
+    type:             'hold' | 'recovery'
+    rowIndex:         number
+    startS:           number
+    endS:             number
+    phaseLabel?:      string
+    description?:     string
+    customPhaseType?: string
   }>>([])
 
   const lastSegmentRef = useRef(-1)
@@ -123,28 +139,56 @@ export function TableRunner({ table, onDone }: Props) {
   const phaseRef       = useRef<RunnerPhase>('idle')
 
   // ── State UI ────────────────────────────────────────────────────────────────
+  const initTotalRows = table.type === 'custom' ? (table.customSeriesCount ?? 0) : table.rows.length
   const [display, setDisplay] = useState<Display>({
-    rowIndex: 0, totalRows: table.rows.length,
+    rowIndex: 0, totalRows: initTotalRows,
     phase: 'idle', phaseLabel: '', instruction: '',
     phaseRemainingS: 0, phaseTotalS: 0, totalProgress: 0,
   })
   const [paused,  setPaused]  = useState(false)
   const [started, setStarted] = useState(false)
 
-  const totalS = totalTableDuration(table.rows)
+  const totalS = table.type === 'custom' && table.customPhases && table.customSeriesCount
+    ? table.customPhases
+        .filter((p) => p.enabled)
+        .reduce((acc, p) => acc + p.durationS * (p.repeatCount ?? 1), 0) * table.customSeriesCount
+    : totalTableDuration(table.rows)
 
   // ── Build segments ──────────────────────────────────────────────────────────
   useEffect(() => {
     let cursor = 0
     const segs: typeof segmentsRef.current = []
-    table.rows.forEach((row, i) => {
-      segs.push({ type: 'hold',     rowIndex: i, startS: cursor, endS: cursor + row.holdS })
-      cursor += row.holdS
-      segs.push({ type: 'recovery', rowIndex: i, startS: cursor, endS: cursor + row.recoveryS })
-      cursor += row.recoveryS
-    })
+
+    if (table.type === 'custom' && table.customPhases && table.customSeriesCount) {
+      const enabledPhases = table.customPhases.filter((p) => p.enabled)
+      for (let s = 0; s < table.customSeriesCount; s++) {
+        for (const phase of enabledPhases) {
+          const reps = phase.repeatCount ?? 1
+          for (let r = 0; r < reps; r++) {
+            segs.push({
+              type:             phase.type === 'hold' ? 'hold' : 'recovery',
+              rowIndex:         s,
+              startS:           cursor,
+              endS:             cursor + phase.durationS,
+              phaseLabel:       CUSTOM_PHASE_LABELS[phase.type] ?? phase.type,
+              description:      phase.description,
+              customPhaseType:  phase.type,
+            })
+            cursor += phase.durationS
+          }
+        }
+      }
+    } else {
+      table.rows.forEach((row, i) => {
+        segs.push({ type: 'hold',     rowIndex: i, startS: cursor, endS: cursor + row.holdS })
+        cursor += row.holdS
+        segs.push({ type: 'recovery', rowIndex: i, startS: cursor, endS: cursor + row.recoveryS })
+        cursor += row.recoveryS
+      })
+    }
+
     segmentsRef.current = segs
-  }, [table.rows])
+  }, [table.rows, table.type, table.customPhases, table.customSeriesCount])
 
   // ── Clock management ────────────────────────────────────────────────────────
   const stopClock = useCallback(() => {
@@ -232,26 +276,44 @@ export function TableRunner({ table, onDone }: Props) {
       startSegmentClock(seg.type, segDuration, seg.rowIndex)
     }
 
-    const segRemaining  = seg.endS - elapsedS
-    const phaseLabel    = seg.type === 'hold' ? 'Rétention' : 'Récupération'
-    const instruction   = seg.type === 'hold'
-      ? `Série ${seg.rowIndex + 1} / ${table.rows.length} — ${fmtTime(table.rows[seg.rowIndex].holdS)}`
-      : 'Récupération — Respirez'
+    const segRemaining = seg.endS - elapsedS
+    const totalRows    = table.type === 'custom' ? (table.customSeriesCount ?? 0) : table.rows.length
+
+    let phaseLabel: string
+    let instruction: string
+    let description: string | undefined
+    let accentColor: string
+
+    if (table.type === 'custom' && seg.customPhaseType) {
+      phaseLabel  = seg.phaseLabel ?? seg.customPhaseType
+      instruction = `Série ${seg.rowIndex + 1} / ${totalRows} — ${phaseLabel}`
+      description = seg.description
+      accentColor = CUSTOM_PHASE_CONFIG[seg.customPhaseType as keyof typeof CUSTOM_PHASE_CONFIG]?.color ?? '#7561af'
+    } else {
+      phaseLabel  = seg.type === 'hold' ? 'Rétention' : 'Récupération'
+      instruction = seg.type === 'hold'
+        ? `Série ${seg.rowIndex + 1} / ${table.rows.length} — ${fmtTime(table.rows[seg.rowIndex].holdS)}`
+        : 'Récupération — Respirez'
+      description = undefined
+      accentColor = seg.type === 'hold' ? '#7561af' : '#34d399'
+    }
 
     setDisplay({
       rowIndex:        seg.rowIndex,
-      totalRows:       table.rows.length,
+      totalRows,
       phase:           seg.type === 'hold' ? 'hold' : 'recovery',
       phaseLabel,
       instruction,
+      description,
       phaseRemainingS: Math.ceil(segRemaining),
       phaseTotalS:     seg.endS - seg.startS,
       totalProgress:   elapsedS / totalS,
+      accentColor,
     })
     phaseRef.current = seg.type === 'hold' ? 'hold' : 'recovery'
 
     rafRef.current = requestAnimationFrame(tick)
-  }, [totalS, stopClock, startSegmentClock, table.rows])
+  }, [totalS, stopClock, startSegmentClock, table.rows, table.type, table.customSeriesCount])
 
   // ── Start ────────────────────────────────────────────────────────────────────
   function start() {
@@ -331,8 +393,7 @@ export function TableRunner({ table, onDone }: Props) {
     )
   }
 
-  const isHold     = display.phase === 'hold'
-  const accentColor = isHold ? '#7561af' : '#34d399'
+  const accentColor = display.accentColor ?? (display.phase === 'hold' ? '#7561af' : '#34d399')
 
   return (
     <div className="flex flex-col h-full bg-bg-base select-none">
@@ -367,6 +428,11 @@ export function TableRunner({ table, onDone }: Props) {
           {display.phaseLabel}
         </p>
         <p className="text-[11px] text-text-muted mt-0.5">{display.instruction}</p>
+        {display.description && (
+          <p className="text-sm text-text-secondary mt-2 px-6 text-center leading-snug">
+            {display.description}
+          </p>
+        )}
       </div>
 
       {/* BreathCircle */}

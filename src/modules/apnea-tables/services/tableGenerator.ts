@@ -1,4 +1,4 @@
-import type { TableRow, TableType, RecoveryPattern, ApneaTable, CustomPhase, CustomPhaseType } from '../types'
+import type { TableRow, TableType, RecoveryPattern, ApneaTable, CustomPhase, CustomPhaseType, CustomItem } from '../types'
 
 // ── Constantes de génération ───────────────────────────────────────────────────
 
@@ -158,4 +158,62 @@ export function buildTable(
 ): Omit<ApneaTable, 'id' | 'createdAt' | 'updatedAt' | 'syncedAt'> {
   const rows = generateRows(params.type, params.referenceMaxS, params.formeFactor, params.seriesCount)
   return { ...params, rows }
+}
+
+// ── Custom Programme helpers ───────────────────────────────────────────────────
+
+/** Génère un id simple sans dépendance externe */
+export function genId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+}
+
+/** Durée d'un item (phase ou groupe). */
+export function customItemDuration(item: CustomItem): number {
+  if (item.kind === 'phase') return item.durationS
+  return item.items.reduce((s, p) => s + p.durationS, 0) * item.repeatCount
+}
+
+/** Durée totale d'un programme. */
+export function customProgramDuration(items: CustomItem[]): number {
+  return items.reduce((s, item) => s + customItemDuration(item), 0)
+}
+
+/** Programme par défaut (prépa + 1 groupe cycle CO₂ × 6). */
+export function defaultCustomProgram(): CustomItem[] {
+  return [
+    {
+      id: genId(), kind: 'phase', phaseType: 'prep',
+      durationS: 30,
+      description: CUSTOM_PHASE_CONFIG['prep'].defaultDesc,
+    },
+    {
+      id: genId(), kind: 'group', label: 'Cycle', repeatCount: 6,
+      items: (['inhale','hold','exhale','recovery'] as CustomPhaseType[]).map((t) => ({
+        id:          genId(),
+        kind:        'phase' as const,
+        phaseType:   t,
+        durationS:   CUSTOM_PHASE_CONFIG[t].defaultS,
+        description: CUSTOM_PHASE_CONFIG[t].defaultDesc,
+      })),
+    },
+  ]
+}
+
+/** Migration ancienne structure → nouveau programme. */
+export function migrateCustomPhases(
+  phases: import('../types').CustomPhase[],
+  seriesCount: number,
+): CustomItem[] {
+  const enabled = phases.filter((p) => p.enabled)
+  if (enabled.length === 0) return defaultCustomProgram()
+  return [{
+    id: genId(), kind: 'group', label: 'Cycle', repeatCount: seriesCount,
+    items: enabled.map((p) => ({
+      id:          genId(),
+      kind:        'phase' as const,
+      phaseType:   p.type,
+      durationS:   p.durationS,
+      description: p.description,
+    })),
+  }]
 }

@@ -1,7 +1,7 @@
 import { useRef, useCallback, useEffect, useState } from 'react'
 import { X, Pause, Play } from 'lucide-react'
 import type { ApneaTable, RunnerPhase } from '../types'
-import { fmtTime, totalTableDuration, CUSTOM_PHASE_CONFIG } from '../services/tableGenerator'
+import { fmtTime, totalTableDuration, CUSTOM_PHASE_CONFIG, customProgramDuration } from '../services/tableGenerator'
 import { BreathClock } from '@modules/breath-engine'
 import { BreathVoiceGuide, estimatePreparationDuration } from '@modules/breath-engine/voice/BreathVoiceGuide'
 import { BreathCircle } from '@modules/breath-engine'
@@ -102,31 +102,70 @@ export function TableRunner({ table, onDone }: Props) {
   const [paused,  setPaused]  = useState(false)
   const [started, setStarted] = useState(false)
 
-  const totalS = table.type === 'custom' && table.customPhases && table.customSeriesCount
-    ? table.customPhases
-        .filter((p) => p.enabled)
-        .reduce((acc, p) => acc + p.durationS * (p.repeatCount ?? 1), 0) * table.customSeriesCount
-    : totalTableDuration(table.rows)
+  const totalS = (() => {
+    if (table.type === 'custom') {
+      if (table.customProgram) return customProgramDuration(table.customProgram)
+      if (table.customPhases && table.customSeriesCount) {
+        return table.customPhases
+          .filter((p) => p.enabled)
+          .reduce((acc, p) => acc + p.durationS * (p.repeatCount ?? 1), 0) * table.customSeriesCount
+      }
+    }
+    return totalTableDuration(table.rows)
+  })()
 
   // ── Build segments ──────────────────────────────────────────────────────────
   useEffect(() => {
     let cursor = 0
     const segs: typeof segmentsRef.current = []
 
-    if (table.type === 'custom' && table.customPhases && table.customSeriesCount) {
+    if (table.type === 'custom' && table.customProgram) {
+      for (const item of table.customProgram) {
+        if (item.kind === 'phase') {
+          const cfg = CUSTOM_PHASE_CONFIG[item.phaseType]
+          segs.push({
+            type:            item.phaseType === 'hold' ? 'hold' : 'recovery',
+            rowIndex:        0,
+            startS:          cursor,
+            endS:            cursor + item.durationS,
+            phaseLabel:      cfg.label,
+            description:     item.description || undefined,
+            customPhaseType: item.phaseType,
+          })
+          cursor += item.durationS
+        } else {
+          for (let r = 0; r < item.repeatCount; r++) {
+            for (const phase of item.items) {
+              const cfg = CUSTOM_PHASE_CONFIG[phase.phaseType]
+              segs.push({
+                type:            phase.phaseType === 'hold' ? 'hold' : 'recovery',
+                rowIndex:        r,
+                startS:          cursor,
+                endS:            cursor + phase.durationS,
+                phaseLabel:      cfg.label,
+                description:     phase.description || undefined,
+                customPhaseType: phase.phaseType,
+              })
+              cursor += phase.durationS
+            }
+          }
+        }
+      }
+    } else if (table.type === 'custom' && table.customPhases && table.customSeriesCount) {
+      // Compatibilité rétrograde : ancienne structure
       const enabledPhases = table.customPhases.filter((p) => p.enabled)
       for (let s = 0; s < table.customSeriesCount; s++) {
         for (const phase of enabledPhases) {
           const reps = phase.repeatCount ?? 1
           for (let r = 0; r < reps; r++) {
             segs.push({
-              type:             phase.type === 'hold' ? 'hold' : 'recovery',
-              rowIndex:         s,
-              startS:           cursor,
-              endS:             cursor + phase.durationS,
-              phaseLabel:       CUSTOM_PHASE_LABELS[phase.type] ?? phase.type,
-              description:      phase.description,
-              customPhaseType:  phase.type,
+              type:            phase.type === 'hold' ? 'hold' : 'recovery',
+              rowIndex:        s,
+              startS:          cursor,
+              endS:            cursor + phase.durationS,
+              phaseLabel:      CUSTOM_PHASE_LABELS[phase.type] ?? phase.type,
+              description:     phase.description,
+              customPhaseType: phase.type,
             })
             cursor += phase.durationS
           }
@@ -142,7 +181,7 @@ export function TableRunner({ table, onDone }: Props) {
     }
 
     segmentsRef.current = segs
-  }, [table.rows, table.type, table.customPhases, table.customSeriesCount])
+  }, [table.rows, table.type, table.customPhases, table.customSeriesCount, table.customProgram])
 
   // ── Clock management ────────────────────────────────────────────────────────
   const stopClock = useCallback(() => {

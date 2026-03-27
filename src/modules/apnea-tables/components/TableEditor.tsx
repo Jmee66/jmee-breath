@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ArrowLeft, Wand2, Sliders, RefreshCw, LayoutList, ChevronDown, ChevronUp } from 'lucide-react'
-import type { ApneaTable, TableType, RecoveryPattern, TableRow, CustomPhase, CustomPhaseType } from '../types'
+import { ArrowLeft, Wand2, Sliders, RefreshCw, X, ChevronDown, ChevronUp, Copy, Plus, Layers } from 'lucide-react'
+import type { ApneaTable, TableType, RecoveryPattern, TableRow, CustomPhaseType, CustomItem, CustomPhaseItem, CustomGroupItem } from '../types'
 import {
   generateRows, totalTableDuration, fmtTime,
-  getPersonalBest, RECOVERY_CYCLE_S, CUSTOM_PHASE_CONFIG, defaultCustomPhases, customSeriesDuration,
+  getPersonalBest, RECOVERY_CYCLE_S, CUSTOM_PHASE_CONFIG,
+  defaultCustomProgram, migrateCustomPhases, customProgramDuration, genId,
 } from '../services/tableGenerator'
 
 // ── Constantes UI ─────────────────────────────────────────────────────────────
@@ -19,8 +20,6 @@ const RECOVERY_OPTIONS: { value: RecoveryPattern; label: string }[] = [
   { value: '6-6-12',     label: '6-6-12 s' },
   { value: 'co2-pattern', label: 'CO₂ pattern (4+2+10 s)' },
 ]
-
-const PHASE_ORDER: CustomPhaseType[] = ['prep', 'inhale', 'hold', 'exhale', 'recovery', 'ventilation']
 
 // ── Composant principal ────────────────────────────────────────────────────────
 
@@ -46,10 +45,13 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
   const [rows,            setRows]            = useState<TableRow[]>(
     initialTable?.rows ?? generateRows('co2', 90, 0, 8),
   )
-  const [customPhases,    setCustomPhases]    = useState<CustomPhase[]>(
-    initialTable?.customPhases ?? defaultCustomPhases(),
-  )
-  const [customSeries,    setCustomSeries]    = useState(initialTable?.customSeriesCount ?? 6)
+  const [program, setProgram] = useState<CustomItem[]>(() => {
+    if (initialTable?.customProgram) return initialTable.customProgram
+    if (initialTable?.customPhases && initialTable.customSeriesCount) {
+      return migrateCustomPhases(initialTable.customPhases, initialTable.customSeriesCount)
+    }
+    return defaultCustomProgram()
+  })
   const [recoveryNote,    setRecoveryNote]    = useState(
     initialTable?.recoveryNote ?? 'Respire librement, récupère.',
   )
@@ -93,29 +95,6 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
     setRows((prev) => prev.filter((_, idx) => idx !== i))
   }
 
-  // ── Édition phases custom ───────────────────────────────────────────────────
-  function updatePhase(phaseType: CustomPhaseType, field: keyof CustomPhase, value: string | number | boolean) {
-    setCustomPhases((prev) => prev.map((p) => p.type === phaseType ? { ...p, [field]: value } : p))
-  }
-
-  function togglePhase(phaseType: CustomPhaseType) {
-    setCustomPhases((prev) => {
-      const existing = prev.find((p) => p.type === phaseType)
-      if (existing) {
-        return prev.map((p) => p.type === phaseType ? { ...p, enabled: !p.enabled } : p)
-      }
-      // Phase absente → l'ajouter avec les valeurs par défaut
-      const cfg = CUSTOM_PHASE_CONFIG[phaseType]
-      const newPhase: CustomPhase = {
-        type:        phaseType,
-        durationS:   cfg.defaultS,
-        description: cfg.defaultDesc,
-        enabled:     true,
-      }
-      return [...prev, newPhase]
-    })
-  }
-
   // ── Enregistrement ──────────────────────────────────────────────────────────
   async function handleSave() {
     if (!name.trim()) return
@@ -129,17 +108,16 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
         seriesCount,
         recoveryPattern,
         formeFactor,
-        customPhases:      type === 'custom' ? customPhases : undefined,
-        customSeriesCount: type === 'custom' ? customSeries : undefined,
-        recoveryNote:      type !== 'custom' ? recoveryNote : undefined,
+        customProgram: type === 'custom' ? program : undefined,
+        recoveryNote:  type !== 'custom' ? recoveryNote : undefined,
       })
     } finally {
       setSaving(false)
     }
   }
 
-  const totalS  = type === 'custom'
-    ? customSeriesDuration(customPhases) * customSeries
+  const totalS = type === 'custom'
+    ? customProgramDuration(program)
     : totalTableDuration(rows)
 
   const maxHold = type !== 'custom'
@@ -205,14 +183,7 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
 
         {/* Éditeur custom */}
         {type === 'custom' && (
-          <CustomEditor
-            phases={customPhases}
-            seriesCount={customSeries}
-            totalS={totalS}
-            onPhaseChange={updatePhase}
-            onTogglePhase={togglePhase}
-            onSeriesCountChange={setCustomSeries}
-          />
+          <ProgramEditor program={program} onChange={setProgram} />
         )}
 
         {/* Config standard (CO2 / O2) */}
@@ -408,142 +379,339 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
   )
 }
 
-// ── CustomEditor ───────────────────────────────────────────────────────────────
+// ── ProgramEditor ─────────────────────────────────────────────────────────────
 
-function CustomEditor({
-  phases, seriesCount, onPhaseChange, onTogglePhase, onSeriesCountChange,
+function ProgramEditor({
+  program, onChange,
 }: {
-  phases:               CustomPhase[]
-  seriesCount:          number
-  totalS:               number
-  onPhaseChange:        (phaseType: CustomPhaseType, field: keyof CustomPhase, value: string | number | boolean) => void
-  onTogglePhase:        (phaseType: CustomPhaseType) => void
-  onSeriesCountChange:  (n: number) => void
+  program:  CustomItem[]
+  onChange: (items: CustomItem[]) => void
 }) {
-  const [expanded, setExpanded] = useState<CustomPhaseType | null>(null)
+  const totalS = customProgramDuration(program)
 
-  const phaseMap = new Map(phases.map((p) => [p.type, p]))
-  const seriesDuration = customSeriesDuration(phases)
-  const grandTotal = seriesDuration * seriesCount
+  // ── Helpers programme ─────────────────────────────────────────────────────
+
+  function updateItem(id: string, updated: CustomItem) {
+    onChange(program.map((it) => it.id === id ? updated : it))
+  }
+  function removeItem(id: string) {
+    onChange(program.filter((it) => it.id !== id))
+  }
+  function moveItem(id: string, dir: -1 | 1) {
+    const idx = program.findIndex((it) => it.id === id)
+    if (idx < 0) return
+    const next = idx + dir
+    if (next < 0 || next >= program.length) return
+    const arr = [...program]
+    ;[arr[idx], arr[next]] = [arr[next], arr[idx]]
+    onChange(arr)
+  }
+  function copyItem(id: string) {
+    const idx = program.findIndex((it) => it.id === id)
+    if (idx < 0) return
+    const clone = deepCloneItem(program[idx])
+    const arr = [...program]
+    arr.splice(idx + 1, 0, clone)
+    onChange(arr)
+  }
+  function addPhase() {
+    const item: CustomPhaseItem = {
+      id: genId(), kind: 'phase', phaseType: 'recovery',
+      durationS: 120, description: CUSTOM_PHASE_CONFIG['recovery'].defaultDesc,
+    }
+    onChange([...program, item])
+  }
+  function addGroup() {
+    const item: CustomGroupItem = {
+      id: genId(), kind: 'group', label: 'Cycle', repeatCount: 3,
+      items: (['inhale','hold','exhale','recovery'] as CustomPhaseType[]).map((t) => ({
+        id: genId(), kind: 'phase' as const, phaseType: t,
+        durationS: CUSTOM_PHASE_CONFIG[t].defaultS,
+        description: CUSTOM_PHASE_CONFIG[t].defaultDesc,
+      })),
+    }
+    onChange([...program, item])
+  }
 
   return (
-    <div className="space-y-4">
-
-      {/* Durée totale — bloc dédié */}
-      <div className="rounded-xl bg-bg-elevated border border-border px-4 py-3 space-y-1">
-        <p className="text-xs text-text-muted">
-          {seriesCount} série{seriesCount > 1 ? 's' : ''} × {fmtTime(seriesDuration)} / série
-        </p>
-        <p className="text-lg font-bold text-accent">{fmtTime(grandTotal)}</p>
+    <div className="space-y-3">
+      {/* Durée totale */}
+      <div className="rounded-xl bg-bg-elevated border border-border px-4 py-3">
+        <p className="text-xs text-text-muted">Durée totale du programme</p>
+        <p className="text-2xl font-bold text-accent mt-0.5">{fmtTime(totalS)}</p>
       </div>
 
-      {/* Séries */}
-      <div className="flex items-center justify-between rounded-xl bg-bg-elevated border border-border px-4 py-3">
-        <span className="text-sm font-semibold text-text-primary">Séries</span>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => onSeriesCountChange(Math.max(1, seriesCount - 1))}
-            className="h-7 w-7 rounded-lg bg-bg-overlay text-white/70 font-bold text-xs"
-          >−</button>
-          <span className="w-6 text-center text-sm font-mono text-text-primary">{seriesCount}</span>
-          <button
-            onClick={() => onSeriesCountChange(Math.min(20, seriesCount + 1))}
-            className="h-7 w-7 rounded-lg bg-bg-overlay text-white/70 font-bold text-xs"
-          >+</button>
-        </div>
+      {/* Items */}
+      <div className="space-y-2">
+        {program.map((item, idx) => (
+          item.kind === 'phase'
+            ? <PhaseItemCard
+                key={item.id} item={item} index={idx} total={program.length}
+                onChange={(upd) => updateItem(item.id, upd)}
+                onRemove={() => removeItem(item.id)}
+                onMoveUp={() => moveItem(item.id, -1)}
+                onMoveDown={() => moveItem(item.id, 1)}
+                onCopy={() => copyItem(item.id)}
+              />
+            : <GroupItemCard
+                key={item.id} item={item} index={idx} total={program.length}
+                onChange={(upd) => updateItem(item.id, upd)}
+                onRemove={() => removeItem(item.id)}
+                onMoveUp={() => moveItem(item.id, -1)}
+                onMoveDown={() => moveItem(item.id, 1)}
+                onCopy={() => copyItem(item.id)}
+              />
+        ))}
       </div>
 
-      {/* Phases */}
-      <div className="space-y-1.5">
-        <label className="text-xs font-semibold uppercase tracking-wide text-text-muted flex items-center gap-1.5">
-          <LayoutList size={12} />
-          Phases par série
-        </label>
-
-        {PHASE_ORDER.map((phaseType) => {
-          const cfg   = CUSTOM_PHASE_CONFIG[phaseType]
-          const phase = phaseMap.get(phaseType) ?? {
-            type: phaseType,
-            durationS: cfg.defaultS,
-            description: cfg.defaultDesc,
-            enabled: false,
-            repeatCount: 1,
-          }
-          const isExpanded = expanded === phaseType
-          const repeatCount = phase.repeatCount ?? 1
-
-          return (
-            <div key={phaseType} className="rounded-xl bg-bg-elevated border border-border overflow-hidden">
-
-              {/* ── Ligne 1 : toggle + label ── tap toute la ligne ── */}
-              <button
-                onClick={() => onTogglePhase(phaseType)}
-                className="w-full flex items-center gap-3 px-4 py-4 text-left"
-              >
-                {/* Pastille couleur */}
-                <div
-                  className="w-3 h-3 rounded-full shrink-0 transition-opacity"
-                  style={{ backgroundColor: cfg.color, opacity: phase.enabled ? 1 : 0.25 }}
-                />
-                {/* Label */}
-                <span className={`flex-1 text-sm font-semibold ${phase.enabled ? 'text-text-primary' : 'text-text-muted'}`}>
-                  {cfg.label}
-                </span>
-                {/* Switch visuel */}
-                <div className={`relative rounded-full transition-colors shrink-0 ${phase.enabled ? 'bg-accent' : 'bg-white/10'}`}
-                  style={{ width: '2.5rem', height: '1.375rem' }}>
-                  <span className={`absolute top-[3px] rounded-full bg-white shadow transition-all ${phase.enabled ? 'left-[17px]' : 'left-[3px]'}`}
-                    style={{ width: '1rem', height: '1rem' }} />
-                </div>
-              </button>
-
-              {/* ── Ligne 2 : durée + répétition (si enabled) ── */}
-              {phase.enabled && (
-                <div className="flex items-center gap-4 px-4 pb-3 border-t border-border/50 pt-3">
-                  {/* Durée */}
-                  <div className="flex items-center gap-2 flex-1">
-                    <span className="text-xs text-text-muted w-12">Durée</span>
-                    <button onClick={() => onPhaseChange(phaseType, 'durationS', Math.max(1, phase.durationS - 5))}
-                      className="h-7 w-7 rounded-lg bg-bg-overlay text-white/70 font-bold text-xs flex items-center justify-center">−</button>
-                    <span className="w-12 text-center text-sm font-mono text-text-primary">{phase.durationS}s</span>
-                    <button onClick={() => onPhaseChange(phaseType, 'durationS', phase.durationS + 5)}
-                      className="h-7 w-7 rounded-lg bg-bg-overlay text-white/70 font-bold text-xs flex items-center justify-center">+</button>
-                  </div>
-                  {/* Répétitions */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-text-muted">×</span>
-                    <button onClick={() => onPhaseChange(phaseType, 'repeatCount', Math.max(1, repeatCount - 1))}
-                      className="h-7 w-7 rounded-lg bg-bg-overlay text-white/70 font-bold text-xs flex items-center justify-center">−</button>
-                    <span className="w-6 text-center text-sm font-mono text-text-primary">{repeatCount}</span>
-                    <button onClick={() => onPhaseChange(phaseType, 'repeatCount', Math.min(20, repeatCount + 1))}
-                      className="h-7 w-7 rounded-lg bg-bg-overlay text-white/70 font-bold text-xs flex items-center justify-center">+</button>
-                  </div>
-                  {/* Expand description */}
-                  <button onClick={() => setExpanded(isExpanded ? null : phaseType)}
-                    className="p-1.5 text-text-muted hover:text-text-primary rounded-lg">
-                    {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                  </button>
-                </div>
-              )}
-
-              {/* ── Zone description (expandable) ── */}
-              {phase.enabled && isExpanded && (
-                <div className="px-4 pb-4 pt-0">
-                  <textarea
-                    rows={2}
-                    value={phase.description}
-                    onChange={(e) => onPhaseChange(phaseType, 'description', e.target.value)}
-                    placeholder="Instructions affichées pendant cette phase…"
-                    className="w-full bg-bg-overlay rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder:text-white/20 outline-none resize-none border border-border focus:border-accent"
-                  />
-                </div>
-              )}
-            </div>
-          )
-        })}
+      {/* Boutons d'ajout */}
+      <div className="flex gap-2">
+        <button
+          onClick={addPhase}
+          className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-border text-sm text-text-muted hover:text-text-primary hover:border-accent/50 transition-colors"
+        >
+          <Plus size={14} /> Phase
+        </button>
+        <button
+          onClick={addGroup}
+          className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-accent/30 text-sm text-accent/70 hover:text-accent hover:border-accent transition-colors"
+        >
+          <Layers size={14} /> Groupe
+        </button>
       </div>
     </div>
   )
+}
+
+// ── PhaseItemCard ─────────────────────────────────────────────────────────────
+
+function PhaseItemCard({
+  item, index, total, onChange, onRemove, onMoveUp, onMoveDown, onCopy,
+}: {
+  item:       CustomPhaseItem
+  index:      number
+  total:      number
+  onChange:   (upd: CustomPhaseItem) => void
+  onRemove:   () => void
+  onMoveUp:   () => void
+  onMoveDown: () => void
+  onCopy:     () => void
+}) {
+  const [descOpen, setDescOpen] = useState(false)
+  const cfg = CUSTOM_PHASE_CONFIG[item.phaseType]
+
+  return (
+    <div className="rounded-xl bg-bg-elevated border border-border overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-3">
+        {/* Reorder */}
+        <div className="flex flex-col gap-0.5 shrink-0">
+          <button onClick={onMoveUp} disabled={index === 0} className="p-0.5 text-white/30 hover:text-white/70 disabled:opacity-20">
+            <ChevronUp size={11} />
+          </button>
+          <button onClick={onMoveDown} disabled={index === total - 1} className="p-0.5 text-white/30 hover:text-white/70 disabled:opacity-20">
+            <ChevronDown size={11} />
+          </button>
+        </div>
+
+        {/* Type picker */}
+        <div className="flex gap-1 flex-wrap flex-1">
+          {(Object.keys(CUSTOM_PHASE_CONFIG) as CustomPhaseType[]).map((t) => {
+            const c = CUSTOM_PHASE_CONFIG[t]
+            const active = item.phaseType === t
+            return (
+              <button
+                key={t}
+                onClick={() => onChange({ ...item, phaseType: t, description: active ? item.description : c.defaultDesc })}
+                className={`px-2 py-1 rounded-lg text-[10px] font-semibold transition-colors border ${
+                  active
+                    ? 'text-white border-transparent'
+                    : 'text-white/30 border-transparent hover:text-white/60'
+                }`}
+                style={active ? { backgroundColor: c.color + '33', borderColor: c.color + '60', color: c.color } : {}}
+              >
+                {c.label}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1 shrink-0">
+          <button onClick={() => setDescOpen(!descOpen)} className="p-1.5 text-white/30 hover:text-white/60 rounded-lg">
+            {descOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          </button>
+          <button onClick={onCopy} className="p-1.5 text-white/30 hover:text-white/60 rounded-lg">
+            <Copy size={13} />
+          </button>
+          <button onClick={onRemove} className="p-1.5 text-white/30 hover:text-status-error rounded-lg">
+            <X size={13} />
+          </button>
+        </div>
+      </div>
+
+      {/* Durée */}
+      <div className="flex items-center gap-2 px-3 pb-3 border-t border-border/40 pt-2.5">
+        <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: cfg.color }} />
+        <span className="text-xs font-semibold flex-1" style={{ color: cfg.color }}>{cfg.label}</span>
+        <button onClick={() => onChange({ ...item, durationS: Math.max(1, item.durationS - 5) })}
+          className="h-7 w-7 rounded-lg bg-bg-overlay text-white/60 font-bold text-xs flex items-center justify-center">−</button>
+        <input
+          type="number" min={1} max={3600} value={item.durationS}
+          onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0) onChange({ ...item, durationS: v }) }}
+          className="w-14 text-center text-sm font-mono bg-transparent text-text-primary outline-none border-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+        />
+        <span className="text-xs text-white/40">s</span>
+        <button onClick={() => onChange({ ...item, durationS: item.durationS + 5 })}
+          className="h-7 w-7 rounded-lg bg-bg-overlay text-white/60 font-bold text-xs flex items-center justify-center">+</button>
+      </div>
+
+      {/* Description */}
+      {descOpen && (
+        <div className="px-3 pb-3">
+          <textarea rows={2} value={item.description}
+            onChange={(e) => onChange({ ...item, description: e.target.value })}
+            placeholder="Instruction affichée pendant cette phase…"
+            className="w-full bg-bg-overlay rounded-lg px-3 py-2 text-xs text-text-primary placeholder:text-white/20 outline-none resize-none border border-border focus:border-accent" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── GroupItemCard ─────────────────────────────────────────────────────────────
+
+function GroupItemCard({
+  item, index, total, onChange, onRemove, onMoveUp, onMoveDown, onCopy,
+}: {
+  item:       CustomGroupItem
+  index:      number
+  total:      number
+  onChange:   (upd: CustomGroupItem) => void
+  onRemove:   () => void
+  onMoveUp:   () => void
+  onMoveDown: () => void
+  onCopy:     () => void
+}) {
+  const [open, setOpen] = useState(true)
+  const groupDurationS  = item.items.reduce((s, p) => s + p.durationS, 0)
+  const totalDurationS  = groupDurationS * item.repeatCount
+
+  function updatePhase(id: string, upd: CustomPhaseItem) {
+    onChange({ ...item, items: item.items.map((p) => p.id === id ? upd : p) })
+  }
+  function removePhase(id: string) {
+    if (item.items.length <= 1) return
+    onChange({ ...item, items: item.items.filter((p) => p.id !== id) })
+  }
+  function movePhase(id: string, dir: -1 | 1) {
+    const idx = item.items.findIndex((p) => p.id === id)
+    if (idx < 0) return
+    const next = idx + dir
+    if (next < 0 || next >= item.items.length) return
+    const arr = [...item.items]
+    ;[arr[idx], arr[next]] = [arr[next], arr[idx]]
+    onChange({ ...item, items: arr })
+  }
+  function copyPhase(id: string) {
+    const idx = item.items.findIndex((p) => p.id === id)
+    if (idx < 0) return
+    const clone: CustomPhaseItem = { ...item.items[idx], id: genId() }
+    const arr = [...item.items]
+    arr.splice(idx + 1, 0, clone)
+    onChange({ ...item, items: arr })
+  }
+  function addPhase() {
+    const ph: CustomPhaseItem = {
+      id: genId(), kind: 'phase', phaseType: 'recovery',
+      durationS: 120, description: CUSTOM_PHASE_CONFIG['recovery'].defaultDesc,
+    }
+    onChange({ ...item, items: [...item.items, ph] })
+  }
+
+  return (
+    <div className="rounded-xl border border-accent/30 bg-bg-elevated overflow-hidden">
+      {/* En-tête groupe */}
+      <div className="flex items-center gap-2 px-3 py-3 bg-accent/5">
+        {/* Reorder */}
+        <div className="flex flex-col gap-0.5 shrink-0">
+          <button onClick={onMoveUp} disabled={index === 0} className="p-0.5 text-white/30 hover:text-white/70 disabled:opacity-20">
+            <ChevronUp size={11} />
+          </button>
+          <button onClick={onMoveDown} disabled={index === total - 1} className="p-0.5 text-white/30 hover:text-white/70 disabled:opacity-20">
+            <ChevronDown size={11} />
+          </button>
+        </div>
+
+        {/* Icône groupe */}
+        <Layers size={14} className="text-accent/60 shrink-0" />
+
+        {/* Label éditable */}
+        <input
+          value={item.label}
+          onChange={(e) => onChange({ ...item, label: e.target.value })}
+          className="flex-1 min-w-0 bg-transparent text-sm font-semibold text-text-primary outline-none border-none placeholder:text-white/25"
+          placeholder="Nom du groupe…"
+        />
+
+        {/* Répétitions */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button onClick={() => onChange({ ...item, repeatCount: Math.max(1, item.repeatCount - 1) })}
+            className="h-7 w-7 rounded-lg bg-bg-overlay text-white/60 font-bold text-xs flex items-center justify-center">−</button>
+          <span className="w-6 text-center text-sm font-mono text-accent font-bold">{item.repeatCount}</span>
+          <button onClick={() => onChange({ ...item, repeatCount: item.repeatCount + 1 })}
+            className="h-7 w-7 rounded-lg bg-bg-overlay text-white/60 font-bold text-xs flex items-center justify-center">+</button>
+          <span className="text-xs text-white/40 ml-0.5">×</span>
+        </div>
+
+        {/* Durée */}
+        <span className="text-xs text-text-muted shrink-0">{fmtTime(totalDurationS)}</span>
+
+        {/* Actions */}
+        <div className="flex items-center gap-0.5 shrink-0 ml-1">
+          <button onClick={() => setOpen(!open)} className="p-1.5 text-white/40 hover:text-white/70 rounded-lg">
+            {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          </button>
+          <button onClick={onCopy} className="p-1.5 text-white/30 hover:text-white/60 rounded-lg">
+            <Copy size={13} />
+          </button>
+          <button onClick={onRemove} className="p-1.5 text-white/30 hover:text-status-error rounded-lg">
+            <X size={13} />
+          </button>
+        </div>
+      </div>
+
+      {/* Phases du groupe */}
+      {open && (
+        <div className="px-3 py-2 space-y-1.5 border-t border-accent/20">
+          {item.items.map((phase, pIdx) => (
+            <PhaseItemCard
+              key={phase.id} item={phase} index={pIdx} total={item.items.length}
+              onChange={(upd) => updatePhase(phase.id, upd)}
+              onRemove={() => removePhase(phase.id)}
+              onMoveUp={() => movePhase(phase.id, -1)}
+              onMoveDown={() => movePhase(phase.id, 1)}
+              onCopy={() => copyPhase(phase.id)}
+            />
+          ))}
+          <button onClick={addPhase}
+            className="w-full py-2 rounded-lg border border-dashed border-border/60 text-xs text-text-muted hover:text-text-primary hover:border-accent/40 transition-colors">
+            + Phase
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── deepCloneItem ─────────────────────────────────────────────────────────────
+
+function deepCloneItem(item: CustomItem): CustomItem {
+  if (item.kind === 'phase') return { ...item, id: genId() }
+  return {
+    ...item,
+    id: genId(),
+    items: item.items.map((p) => ({ ...p, id: genId() })),
+  }
 }
 
 // ── RowEditor ─────────────────────────────────────────────────────────────────

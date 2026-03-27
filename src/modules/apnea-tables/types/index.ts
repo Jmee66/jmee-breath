@@ -32,6 +32,26 @@ export interface CustomTableRow {
   phases: CustomPhase[]
 }
 
+// ── Custom Programme (nouveau système flexible) ───────────────────────────────
+
+export interface CustomPhaseItem {
+  id:          string
+  kind:        'phase'
+  phaseType:   CustomPhaseType
+  durationS:   number
+  description: string
+}
+
+export interface CustomGroupItem {
+  id:          string
+  kind:        'group'
+  label:       string
+  items:       CustomPhaseItem[]
+  repeatCount: number
+}
+
+export type CustomItem = CustomPhaseItem | CustomGroupItem
+
 // ── Table unifiée ──────────────────────────────────────────────────────────────
 
 export interface ApneaTable {
@@ -49,6 +69,9 @@ export interface ApneaTable {
   // Custom : template de phases + N séries identiques
   customPhases?:      CustomPhase[]
   customSeriesCount?: number
+
+  // Custom Programme (nouveau système flexible) — remplace customPhases + customSeriesCount
+  customProgram?: CustomItem[]
 
   // CO2 / O2 : note affichée pendant la récupération (texte libre)
   recoveryNote?: string

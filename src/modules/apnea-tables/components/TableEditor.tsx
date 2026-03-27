@@ -50,6 +50,9 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
     initialTable?.customPhases ?? defaultCustomPhases(),
   )
   const [customSeries,    setCustomSeries]    = useState(initialTable?.customSeriesCount ?? 6)
+  const [recoveryNote,    setRecoveryNote]    = useState(
+    initialTable?.recoveryNote ?? 'Respire librement, récupère.',
+  )
 
   // ── Personal Best ───────────────────────────────────────────────────────────
   const [pb,      setPb]      = useState<number | null>(null)
@@ -128,6 +131,7 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
         formeFactor,
         customPhases:      type === 'custom' ? customPhases : undefined,
         customSeriesCount: type === 'custom' ? customSeries : undefined,
+        recoveryNote:      type !== 'custom' ? recoveryNote : undefined,
       })
     } finally {
       setSaving(false)
@@ -329,12 +333,18 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
               </div>
             )}
 
-            {/* Info récupération libre */}
-            <div className="rounded-xl bg-bg-elevated border border-border px-4 py-3">
-              <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-1">Récupération</p>
-              <p className="text-xs text-text-muted leading-relaxed">
-                Ventilation libre — aucun modèle imposé. Le chrono décompte, respire à ton rythme.
-              </p>
+            {/* Note récupération libre — éditable */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+                Message récupération
+              </label>
+              <textarea
+                rows={2}
+                value={recoveryNote}
+                onChange={(e) => setRecoveryNote(e.target.value)}
+                placeholder="Ce qui s'affiche pendant la récupération…"
+                className="w-full rounded-xl bg-bg-elevated border border-border px-3 py-2.5 text-sm text-text-primary placeholder:text-white/25 outline-none resize-none focus:border-accent"
+              />
             </div>
 
             {/* Aperçu / éditeur manuel */}
@@ -464,89 +474,67 @@ function CustomEditor({
 
           return (
             <div key={phaseType} className="rounded-xl bg-bg-elevated border border-border overflow-hidden">
-              {/* Ligne principale */}
-              <div className="flex items-center gap-3 px-3 py-3.5">
-                {/* Pastille + toggle : zone tappable min h-10 */}
-                <button
-                  onClick={() => onTogglePhase(phaseType)}
-                  className="flex items-center gap-2 min-h-10 shrink-0"
-                  aria-label={`${phase.enabled ? 'Désactiver' : 'Activer'} ${cfg.label}`}
-                >
-                  <div
-                    className="w-2.5 h-2.5 rounded-full shrink-0"
-                    style={{ backgroundColor: phase.enabled ? cfg.color : 'rgba(255,255,255,0.15)' }}
-                  />
-                  <div
-                    className={`relative rounded-full transition-colors shrink-0 ${
-                      phase.enabled ? 'bg-accent' : 'bg-bg-overlay border border-border'
-                    }`}
-                    style={{ width: '2rem', height: '1.1rem' }}
-                  >
-                    <span
-                      className={`absolute top-0.5 rounded-full bg-white transition-transform ${
-                        phase.enabled ? 'translate-x-4' : 'translate-x-0.5'
-                      }`}
-                      style={{ width: '0.875rem', height: '0.875rem' }}
-                    />
-                  </div>
-                </button>
 
+              {/* ── Ligne 1 : toggle + label ── tap toute la ligne ── */}
+              <button
+                onClick={() => onTogglePhase(phaseType)}
+                className="w-full flex items-center gap-3 px-4 py-4 text-left"
+              >
+                {/* Pastille couleur */}
+                <div
+                  className="w-3 h-3 rounded-full shrink-0 transition-opacity"
+                  style={{ backgroundColor: cfg.color, opacity: phase.enabled ? 1 : 0.25 }}
+                />
                 {/* Label */}
-                <span className={`flex-1 text-sm ${phase.enabled ? 'text-text-primary' : 'text-text-muted'}`}>
+                <span className={`flex-1 text-sm font-semibold ${phase.enabled ? 'text-text-primary' : 'text-text-muted'}`}>
                   {cfg.label}
                 </span>
+                {/* Switch visuel */}
+                <div className={`relative rounded-full transition-colors shrink-0 ${phase.enabled ? 'bg-accent' : 'bg-white/10'}`}
+                  style={{ width: '2.5rem', height: '1.375rem' }}>
+                  <span className={`absolute top-[3px] rounded-full bg-white shadow transition-all ${phase.enabled ? 'left-[17px]' : 'left-[3px]'}`}
+                    style={{ width: '1rem', height: '1rem' }} />
+                </div>
+              </button>
 
-                {/* Stepper durée (si enabled) */}
-                {phase.enabled && (
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => onPhaseChange(phaseType, 'durationS', Math.max(1, phase.durationS - 5))}
-                      className="h-6 w-6 rounded-md bg-bg-overlay text-white/70 font-bold text-xs"
-                    >−</button>
-                    <span className="w-10 text-center text-xs font-mono text-text-primary">{phase.durationS}s</span>
-                    <button
-                      onClick={() => onPhaseChange(phaseType, 'durationS', phase.durationS + 5)}
-                      className="h-6 w-6 rounded-md bg-bg-overlay text-white/70 font-bold text-xs"
-                    >+</button>
+              {/* ── Ligne 2 : durée + répétition (si enabled) ── */}
+              {phase.enabled && (
+                <div className="flex items-center gap-4 px-4 pb-3 border-t border-border/50 pt-3">
+                  {/* Durée */}
+                  <div className="flex items-center gap-2 flex-1">
+                    <span className="text-xs text-text-muted w-12">Durée</span>
+                    <button onClick={() => onPhaseChange(phaseType, 'durationS', Math.max(1, phase.durationS - 5))}
+                      className="h-7 w-7 rounded-lg bg-bg-overlay text-white/70 font-bold text-xs flex items-center justify-center">−</button>
+                    <span className="w-12 text-center text-sm font-mono text-text-primary">{phase.durationS}s</span>
+                    <button onClick={() => onPhaseChange(phaseType, 'durationS', phase.durationS + 5)}
+                      className="h-7 w-7 rounded-lg bg-bg-overlay text-white/70 font-bold text-xs flex items-center justify-center">+</button>
                   </div>
-                )}
-
-                {/* Bouton expand (si enabled) */}
-                {phase.enabled && (
-                  <button
-                    onClick={() => setExpanded(isExpanded ? null : phaseType)}
-                    className="p-1 text-text-muted hover:text-text-primary"
-                  >
+                  {/* Répétitions */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-text-muted">×</span>
+                    <button onClick={() => onPhaseChange(phaseType, 'repeatCount', Math.max(1, repeatCount - 1))}
+                      className="h-7 w-7 rounded-lg bg-bg-overlay text-white/70 font-bold text-xs flex items-center justify-center">−</button>
+                    <span className="w-6 text-center text-sm font-mono text-text-primary">{repeatCount}</span>
+                    <button onClick={() => onPhaseChange(phaseType, 'repeatCount', Math.min(20, repeatCount + 1))}
+                      className="h-7 w-7 rounded-lg bg-bg-overlay text-white/70 font-bold text-xs flex items-center justify-center">+</button>
+                  </div>
+                  {/* Expand description */}
+                  <button onClick={() => setExpanded(isExpanded ? null : phaseType)}
+                    className="p-1.5 text-text-muted hover:text-text-primary rounded-lg">
                     {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                   </button>
-                )}
-              </div>
+                </div>
+              )}
 
-              {/* Zone expand : repeatCount + description */}
+              {/* ── Zone description (expandable) ── */}
               {phase.enabled && isExpanded && (
-                <div className="px-3 pb-3 border-t border-border pt-2.5 space-y-3">
-                  {/* Stepper repeatCount */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-text-muted">Répéter</span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => onPhaseChange(phaseType, 'repeatCount', Math.max(1, repeatCount - 1))}
-                        className="h-6 w-6 rounded-md bg-bg-overlay text-white/70 font-bold text-xs"
-                      >−</button>
-                      <span className="w-14 text-center text-xs font-mono text-text-primary">{repeatCount} fois</span>
-                      <button
-                        onClick={() => onPhaseChange(phaseType, 'repeatCount', Math.min(20, repeatCount + 1))}
-                        className="h-6 w-6 rounded-md bg-bg-overlay text-white/70 font-bold text-xs"
-                      >+</button>
-                    </div>
-                  </div>
-                  {/* Description */}
+                <div className="px-4 pb-4 pt-0">
                   <textarea
                     rows={2}
                     value={phase.description}
                     onChange={(e) => onPhaseChange(phaseType, 'description', e.target.value)}
-                    placeholder="Instructions pour la phase…"
-                    className="w-full bg-bg-overlay rounded-lg px-2.5 py-2 text-xs text-text-primary placeholder:text-white/25 outline-none resize-none border border-border focus:border-accent"
+                    placeholder="Instructions affichées pendant cette phase…"
+                    className="w-full bg-bg-overlay rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder:text-white/20 outline-none resize-none border border-border focus:border-accent"
                   />
                 </div>
               )}

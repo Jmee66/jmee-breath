@@ -47,8 +47,11 @@ export interface ApneaTable {
   formeFactor:     number
 
   // Custom : template de phases + N séries identiques
-  customPhases?:   CustomPhase[]
+  customPhases?:      CustomPhase[]
   customSeriesCount?: number
+
+  // CO2 / O2 : note affichée pendant la récupération (texte libre)
+  recoveryNote?: string
 
   createdAt:  string
   updatedAt:  string

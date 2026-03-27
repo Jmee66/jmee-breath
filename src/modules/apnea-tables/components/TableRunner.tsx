@@ -263,7 +263,7 @@ export function TableRunner({ table, onDone }: Props) {
       instruction = seg.type === 'hold'
         ? `Série ${seg.rowIndex + 1} / ${table.rows.length} — ${fmtTime(table.rows[seg.rowIndex].holdS)}`
         : 'Récupération — Respirez'
-      description = undefined
+      description = seg.type === 'recovery' ? (table.recoveryNote ?? undefined) : undefined
       accentColor = seg.type === 'hold' ? '#7561af' : '#34d399'
     }
 

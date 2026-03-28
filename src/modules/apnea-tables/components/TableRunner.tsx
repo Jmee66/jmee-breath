@@ -130,17 +130,6 @@ function buildTableExercise(table: ApneaTable): {
   return { exercise, metadata, totalS: cursor }
 }
 
-// ── Vocal décompte (10 → 4) ───────────────────────────────────────────────────
-
-function speakCountdownNumber(n: number, volume: number, rate: number) {
-  if (!window.speechSynthesis) return
-  window.speechSynthesis.cancel()
-  const utt = new SpeechSynthesisUtterance(String(n))
-  utt.rate   = Math.max(0.5, rate * 1.1)
-  utt.volume = volume
-  utt.lang   = 'fr-FR'
-  window.speechSynthesis.speak(utt)
-}
 
 // ── Display state ─────────────────────────────────────────────────────────────
 
@@ -295,14 +284,17 @@ export function TableRunner({ table, onDone }: Props) {
           const totalProgress = Math.min(1, (phaseStartS + phaseDur * progress) / totalS)
 
           // Décompte : vocal 10→4, visuel 10→4
+          // Math.ceil avec tolérance 50 ms pour éviter les doubles déclenchements
+          // aux frontières d'entier (floating point instable à 60 fps).
+          // speakText() via voiceRef = workaround iOS 50ms + voix sélectionnée.
           let countdownN: number | undefined
           if (meta?.isCountdown) {
-            const n = Math.ceil(remainingS)
+            const n = Math.ceil(remainingS - 0.05)
             countdownN = n > 0 ? n : undefined
             if (n >= 4 && n !== lastCountdownNRef.current) {
               lastCountdownNRef.current = n
-              const vceState = useVoiceGuideStore.getState()
-              if (vceState.voiceEnabled) speakCountdownNumber(n, vceState.voiceVolume, vceState.voiceRate)
+              const vce = useVoiceGuideStore.getState()
+              if (vce.voiceEnabled) voiceRef.current?.speakText(String(n))
             }
           }
 

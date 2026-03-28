@@ -1,76 +1,134 @@
-import { useRef, useCallback, useEffect, useState } from 'react'
+/**
+ * TableRunner — v2
+ *
+ * Architecture : la table est convertie en un seul Exercise (phases à plat),
+ * confié à UN SEUL BreathClock du début à la fin.
+ * Tout le timing, les animations, les sons et la voix sont délégués au BreathEngine.
+ * Ce composant ne gère que l'affichage des métadonnées spécifiques aux tables
+ * (numéro de série, label de phase, progression globale, décompte custom).
+ */
+
+import { useRef, useCallback, useEffect, useState, useMemo } from 'react'
 import { X, Pause, Play } from 'lucide-react'
-import type { ApneaTable, RunnerPhase } from '../types'
-import { fmtTime, totalTableDuration, CUSTOM_PHASE_CONFIG, customProgramDuration } from '../services/tableGenerator'
-import { BreathClock } from '@modules/breath-engine'
+import type { ApneaTable, CustomPhaseType, RunnerPhase } from '../types'
+import type { Exercise, Phase, PhaseType } from '@core/types'
+import { fmtTime, CUSTOM_PHASE_CONFIG, customProgramDuration } from '../services/tableGenerator'
+import { BreathClock }                    from '@modules/breath-engine'
 import { BreathVoiceGuide, estimatePreparationDuration } from '@modules/breath-engine/voice/BreathVoiceGuide'
-import { BreathCircle } from '@modules/breath-engine'
-import { useBreathStore } from '@modules/breath-engine'
+import { BreathCircle }                   from '@modules/breath-engine'
+import { useBreathStore }                 from '@modules/breath-engine'
 import { useSoundStore, useDroneStore, useVoiceGuideStore } from '@modules/breath-engine'
-import type { Exercise, Phase } from '@core/types'
 
-// ── Helpers : construction des exercices par phase ────────────────────────────
+// ── Conversion ApneaTable → Exercise ─────────────────────────────────────────
+//
+// Principe : chaque ligne/phase de la table devient une Phase[] plate.
+// repetitions: 1 → le BreathClock joue la séquence une seule fois.
+// Timing CO2/O2 : inhale(INHALE_S) + hold(holdS) + recovery(recoveryS - INHALE_S)
+//   → la durée totale par ligne est préservée.
 
-/** Crée un Exercise "hold" (rétention plein poumon) pour N secondes. */
-function makeHoldExercise(holdS: number, label: string): Exercise {
-  return {
-    id: `table-hold-${holdS}`,
-    name: label,
-    description: '',
-    category: 'preparation',
-    difficulty: 1,
-    tags: [],
-    phases: [{ type: 'hold', durationSeconds: holdS } as Phase],
-    repetitions: 1,
-    restBetweenRepsSeconds: 0,
-    isPreset: true,
-    createdAt: '',
-    updatedAt: '',
-    customPresets: [],
+const INHALE_S = 3  // inspiration courte avant chaque apnée
+
+interface SegmentMeta {
+  rowIndex:    number          // numéro de série affiché (0-based)
+  totalRows:   number          // total de séries
+  phaseLabel:  string          // ex. "Rétention"
+  instruction: string          // ex. "Série 3 / 8"
+  description: string | undefined
+  accentColor: string
+  isCountdown: boolean
+  phaseStartS: number          // cumul de toutes les phases précédentes (pour totalProgress)
+}
+
+/** Mappe un CustomPhaseType vers le PhaseType du BreathEngine. */
+function mapCustomType(t: CustomPhaseType): PhaseType {
+  if (t === 'inhale') return 'inhale'
+  if (t === 'hold')   return 'hold'
+  if (t === 'exhale') return 'exhale'
+  // prep, recovery, ventilation, countdown → recovery (cercle statique vert)
+  return 'recovery'
+}
+
+/** Construit l'Exercise complet + les métadonnées d'affichage par phase. */
+function buildTableExercise(table: ApneaTable): {
+  exercise: Exercise
+  metadata: SegmentMeta[]
+  totalS:   number
+} {
+  const phases:   Phase[]       = []
+  const metadata: SegmentMeta[] = []
+  let cursor = 0
+
+  function push(p: Phase, meta: Omit<SegmentMeta, 'phaseStartS'>) {
+    metadata.push({ ...meta, phaseStartS: cursor })
+    phases.push(p)
+    cursor += p.durationSeconds
   }
-}
 
-/** Crée un Exercise pour n'importe quelle phase standard (inhale, exhale, hold). */
-function makePhaseExercise(phaseType: string, durationS: number, label: string): Exercise {
-  const breathType: 'inhale' | 'hold' | 'exhale' | 'recovery' =
-    phaseType === 'inhale'  ? 'inhale' :
-    phaseType === 'exhale'  ? 'exhale' :
-    phaseType === 'hold'    ? 'hold'   :
-    'recovery'
+  // ── CO2 / O2 ──────────────────────────────────────────────────────────────
+  if (table.type !== 'custom') {
+    const rows = table.rows
+    rows.forEach((row, i) => {
+      const serie = `Série ${i + 1} / ${rows.length}`
+      push(
+        { type: 'inhale',   durationSeconds: INHALE_S,                               label: serie },
+        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Inspiration', instruction: serie, description: undefined, accentColor: '#1a85c2', isCountdown: false },
+      )
+      push(
+        { type: 'hold',     durationSeconds: row.holdS,                               label: `Rétention ${fmtTime(row.holdS)}` },
+        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Rétention',   instruction: serie, description: undefined, accentColor: '#7561af', isCountdown: false },
+      )
+      push(
+        { type: 'recovery', durationSeconds: Math.max(2, row.recoveryS - INHALE_S),  label: 'Récupérez' },
+        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Récupération', instruction: 'Respirez librement', description: table.recoveryNote ?? undefined, accentColor: '#34d399', isCountdown: false },
+      )
+    })
 
-  return {
-    id: `table-${phaseType}-${durationS}`,
-    name: label,
-    description: '',
-    category: 'preparation',
-    difficulty: 1,
-    tags: [],
-    phases: [{ type: breathType, durationSeconds: durationS } as Phase],
-    repetitions: 1,
-    restBetweenRepsSeconds: 0,
-    isPreset: true,
-    createdAt: '',
-    updatedAt: '',
-    customPresets: [],
+  // ── Custom ─────────────────────────────────────────────────────────────────
+  } else {
+    const program = table.customProgram ?? []
+
+    for (const item of program) {
+      if (item.kind === 'phase') {
+        const cfg = CUSTOM_PHASE_CONFIG[item.phaseType]
+        push(
+          { type: mapCustomType(item.phaseType), durationSeconds: item.durationS, label: cfg.label },
+          { rowIndex: 0, totalRows: 1, phaseLabel: cfg.label, instruction: cfg.label, description: item.description || undefined, accentColor: cfg.color, isCountdown: item.phaseType === 'countdown' },
+        )
+      } else {
+        for (let r = 0; r < item.repeatCount; r++) {
+          for (const p of item.items) {
+            const cfg = CUSTOM_PHASE_CONFIG[p.phaseType]
+            push(
+              { type: mapCustomType(p.phaseType), durationSeconds: p.durationS, label: cfg.label },
+              { rowIndex: r, totalRows: item.repeatCount, phaseLabel: cfg.label, instruction: `${item.label} ${r + 1} / ${item.repeatCount}`, description: p.description || undefined, accentColor: cfg.color, isCountdown: p.phaseType === 'countdown' },
+            )
+          }
+        }
+      }
+    }
   }
+
+  const exercise: Exercise = {
+    id:                    `table-${table.id}`,
+    name:                  table.name,
+    description:           '',
+    category:              table.category ?? 'apnea',
+    difficulty:            1,
+    tags:                  [],
+    phases,
+    repetitions:           1,
+    restBetweenRepsSeconds: 0,
+    isPreset:              false,
+    createdAt:             table.createdAt,
+    updatedAt:             table.updatedAt,
+  }
+
+  return { exercise, metadata, totalS: cursor }
 }
 
-// La récupération CO₂/O₂ est une ventilation libre (pas de BreathClock imposé).
+// ── Vocal décompte (10 → 4) ───────────────────────────────────────────────────
 
-// ── Constantes custom ─────────────────────────────────────────────────────────
-
-const CUSTOM_PHASE_LABELS: Record<string, string> = {
-  prep:        'Préparation',
-  inhale:      'Inspiration',
-  hold:        'Rétention',
-  exhale:      'Expiration',
-  recovery:    'Récupération',
-  ventilation: 'Ventilation',
-  countdown:   'Décompte',
-}
-
-/** Synthèse vocale d'un chiffre (10→4) pendant le décompte. */
-function speakCountdownNumber(n: number, volume: number, rate: number): void {
+function speakCountdownNumber(n: number, volume: number, rate: number) {
   if (!window.speechSynthesis) return
   window.speechSynthesis.cancel()
   const utt = new SpeechSynthesisUtterance(String(n))
@@ -80,151 +138,54 @@ function speakCountdownNumber(n: number, volume: number, rate: number): void {
   window.speechSynthesis.speak(utt)
 }
 
-// ── Composant principal ────────────────────────────────────────────────────────
+// ── Display state ─────────────────────────────────────────────────────────────
+
+interface Display {
+  rowIndex:        number
+  totalRows:       number
+  phase:           RunnerPhase
+  phaseLabel:      string
+  instruction:     string
+  description?:    string
+  phaseRemainingS: number
+  phaseTotalS:     number
+  totalProgress:   number
+  accentColor:     string
+  isCountdown:     boolean
+  countdownN?:     number
+}
+
+// ── Composant principal ───────────────────────────────────────────────────────
 
 interface Props {
-  table: ApneaTable
+  table:  ApneaTable
   onDone: () => void
 }
 
-interface Display {
-  rowIndex:         number
-  totalRows:        number
-  phase:            RunnerPhase
-  phaseLabel:       string
-  instruction:      string
-  description?:     string
-  phaseRemainingS:  number
-  phaseTotalS:      number
-  totalProgress:    number
-  accentColor?:     string
-  countdownN?:      number   // chiffre affiché pendant la phase countdown (10→4), undefined sinon
-  isCountdown?:     boolean  // true pendant toute la durée d'un segment countdown
-}
-
-
 export function TableRunner({ table, onDone }: Props) {
-  // ── Stores ──────────────────────────────────────────────────────────────────
   const breathStore = useBreathStore
+  const clockRef    = useRef<BreathClock | null>(null)
+  const voiceRef    = useRef<BreathVoiceGuide | null>(null)
+  const mountedRef  = useRef(true)
 
-  // ── Refs ────────────────────────────────────────────────────────────────────
-  const clockRef       = useRef<BreathClock | null>(null)
-  const voiceRef       = useRef<BreathVoiceGuide | null>(null)
-  const rafRef         = useRef<number | null>(null)
-  const startMsRef     = useRef<number>(0)
-  const pausedMsRef    = useRef<number>(0)
-  const pausedAtRef    = useRef<number | null>(null)
-
-  // Séquence aplatie : [row0-hold, row0-recovery, row1-hold, row1-recovery, ...]
-  // Chaque segment : { type: 'hold'|'recovery', rowIndex, startS, endS }
-  const segmentsRef = useRef<Array<{
-    type:             'hold' | 'recovery'
-    rowIndex:         number
-    startS:           number
-    endS:             number
-    phaseLabel?:      string
-    description?:     string
-    customPhaseType?: string
-  }>>([])
-
-  const lastSegmentRef     = useRef(-1)
-  const mountedRef         = useRef(true)
-  const phaseRef           = useRef<RunnerPhase>('idle')
+  // Références stables pour les callbacks du BreathClock (pas de re-création)
+  const currentMetaRef     = useRef<SegmentMeta | null>(null)
+  const currentPhaseDurRef = useRef(0)
   const lastCountdownNRef  = useRef(-1)
 
-  // ── State UI ────────────────────────────────────────────────────────────────
-  const initTotalRows = table.type === 'custom' ? (table.customSeriesCount ?? 0) : table.rows.length
-  const [display, setDisplay] = useState<Display>({
-    rowIndex: 0, totalRows: initTotalRows,
-    phase: 'idle', phaseLabel: '', instruction: '',
-    phaseRemainingS: 0, phaseTotalS: 0, totalProgress: 0,
+  const [display,  setDisplay]  = useState<Display>({
+    rowIndex: 0, totalRows: 0, phase: 'idle', phaseLabel: '',
+    instruction: '', phaseRemainingS: 0, phaseTotalS: 0,
+    totalProgress: 0, accentColor: '#7561af', isCountdown: false,
   })
   const [paused,  setPaused]  = useState(false)
   const [started, setStarted] = useState(false)
 
-  const totalS = (() => {
-    if (table.type === 'custom') {
-      if (table.customProgram) return customProgramDuration(table.customProgram)
-      if (table.customPhases && table.customSeriesCount) {
-        return table.customPhases
-          .filter((p) => p.enabled)
-          .reduce((acc, p) => acc + p.durationS * (p.repeatCount ?? 1), 0) * table.customSeriesCount
-      }
-    }
-    return totalTableDuration(table.rows)
-  })()
+  // Construction une seule fois (mémoïsé)
+  const { exercise, metadata, totalS } = useMemo(() => buildTableExercise(table), [table])
 
-  // ── Build segments ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    let cursor = 0
-    const segs: typeof segmentsRef.current = []
-
-    if (table.type === 'custom' && table.customProgram) {
-      for (const item of table.customProgram) {
-        if (item.kind === 'phase') {
-          const cfg = CUSTOM_PHASE_CONFIG[item.phaseType]
-          segs.push({
-            type:            item.phaseType === 'hold' ? 'hold' : 'recovery',
-            rowIndex:        0,
-            startS:          cursor,
-            endS:            cursor + item.durationS,
-            phaseLabel:      cfg.label,
-            description:     item.description || undefined,
-            customPhaseType: item.phaseType,
-          })
-          cursor += item.durationS
-        } else {
-          for (let r = 0; r < item.repeatCount; r++) {
-            for (const phase of item.items) {
-              const cfg = CUSTOM_PHASE_CONFIG[phase.phaseType]
-              segs.push({
-                type:            phase.phaseType === 'hold' ? 'hold' : 'recovery',
-                rowIndex:        r,
-                startS:          cursor,
-                endS:            cursor + phase.durationS,
-                phaseLabel:      cfg.label,
-                description:     phase.description || undefined,
-                customPhaseType: phase.phaseType,
-              })
-              cursor += phase.durationS
-            }
-          }
-        }
-      }
-    } else if (table.type === 'custom' && table.customPhases && table.customSeriesCount) {
-      // Compatibilité rétrograde : ancienne structure
-      const enabledPhases = table.customPhases.filter((p) => p.enabled)
-      for (let s = 0; s < table.customSeriesCount; s++) {
-        for (const phase of enabledPhases) {
-          const reps = phase.repeatCount ?? 1
-          for (let r = 0; r < reps; r++) {
-            segs.push({
-              type:            phase.type === 'hold' ? 'hold' : 'recovery',
-              rowIndex:        s,
-              startS:          cursor,
-              endS:            cursor + phase.durationS,
-              phaseLabel:      CUSTOM_PHASE_LABELS[phase.type] ?? phase.type,
-              description:     phase.description,
-              customPhaseType: phase.type,
-            })
-            cursor += phase.durationS
-          }
-        }
-      }
-    } else {
-      table.rows.forEach((row, i) => {
-        segs.push({ type: 'hold',     rowIndex: i, startS: cursor, endS: cursor + row.holdS })
-        cursor += row.holdS
-        segs.push({ type: 'recovery', rowIndex: i, startS: cursor, endS: cursor + row.recoveryS })
-        cursor += row.recoveryS
-      })
-    }
-
-    segmentsRef.current = segs
-  }, [table.rows, table.type, table.customPhases, table.customSeriesCount, table.customProgram])
-
-  // ── Clock management ────────────────────────────────────────────────────────
-  const stopClock = useCallback(() => {
+  // ── Arrêt propre ─────────────────────────────────────────────────────────────
+  const stopSession = useCallback(() => {
     voiceRef.current?.cancel()
     voiceRef.current = null
     clockRef.current?.stop()
@@ -232,92 +193,19 @@ export function TableRunner({ table, onDone }: Props) {
     breathStore.getState().endSession()
   }, [breathStore])
 
-  const startSegmentClock = useCallback((
-    type: 'hold' | 'recovery',
-    durationS: number,
-    rowIndex: number,
-    customPhaseType?: string,
-  ) => {
-    stopClock()
-
-    const totalRows = table.type === 'custom' ? (table.customSeriesCount ?? 1) : table.rows.length
-
-    // ── Custom phases: inhale / exhale / hold → BreathClock ───────────────────
-    if (customPhaseType === 'inhale' || customPhaseType === 'exhale' || customPhaseType === 'hold') {
-      const label = `${CUSTOM_PHASE_LABELS[customPhaseType] ?? customPhaseType} — ${fmtTime(durationS)}`
-      const exercise = makePhaseExercise(customPhaseType, durationS, label)
-
-      const sndC = useSoundStore.getState()
-      const drnC = useDroneStore.getState()
-      const vceC = useVoiceGuideStore.getState()
-
-      const voiceC = new BreathVoiceGuide({
-        enabled: vceC.voiceEnabled,
-        volume:  vceC.voiceVolume,
-        rate:    vceC.voiceRate,
-        pitch:   vceC.voicePitch,
-      })
-      voiceC.setExercise(exercise)
-      voiceRef.current = voiceC
-
-      const prepDurationC = vceC.voiceEnabled
-        ? estimatePreparationDuration(exercise, vceC.voiceRate)
-        : 2
-
-      const clockC = new BreathClock(
-        {
-          onPhaseChange: (phase) => {
-            voiceC.speak(phase.internalType)
-            breathStore.getState().setPhaseComplete(phase.publicType, phase.internalType, phase.durationSeconds)
-          },
-          onTick: (progress) => {
-            breathStore.getState().setProgress(progress)
-          },
-          onRepComplete: () => {},
-          onSessionComplete: () => {},
-        },
-        { enabled: sndC.soundEnabled, volume: sndC.soundVolume, soundSet: sndC.soundSet, bowlOnPhase: sndC.bowlOnPhase },
-        { enabled: drnC.droneEnabled, volume: drnC.droneVolume },
-      )
-      clockRef.current = clockC
-      void clockC.start(exercise, prepDurationC)
-      return
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      stopSession()
     }
+  }, [stopSession])
 
-    // ── Custom: prep → calm hold circle ───────────────────────────────────────
-    if (customPhaseType === 'prep') {
-      breathStore.getState().setPhaseComplete('inhale', 'hold-full', durationS)
-      return
-    }
-
-    // ── Custom: ventilation → recovery state ──────────────────────────────────
-    if (customPhaseType === 'ventilation') {
-      breathStore.getState().setPhaseComplete('exhale', 'recovery', durationS)
-      return
-    }
-
-    // ── Custom: countdown → timer visuel/vocal pur, aucun breathStore ────────
-    if (customPhaseType === 'countdown') {
-      lastCountdownNRef.current = -1
-      // stopClock() a déjà appelé endSession() — on ne touche pas breathStore ici
-      // pour éviter animations et sons du BreathEngine pendant le décompte
-      return
-    }
-
-    // ── Recovery (custom or standard) → ventilation libre ────────────────────
-    if (type === 'recovery' || customPhaseType === 'recovery') {
-      void totalRows
-      breathStore.getState().setPhaseComplete('exhale', 'recovery', durationS)
-      // clockRef reste null — le tick master mettra à jour setProgress manuellement
-      return
-    }
-
-    // ── Standard Hold : BreathClock classique ─────────────────────────────────
-    const exercise = makeHoldExercise(durationS, `Série ${rowIndex + 1}/${totalRows}`)
-
+  // ── Démarrage ─────────────────────────────────────────────────────────────────
+  function start() {
+    const vce = useVoiceGuideStore.getState()
     const snd = useSoundStore.getState()
     const drn = useDroneStore.getState()
-    const vce = useVoiceGuideStore.getState()
 
     const voice = new BreathVoiceGuide({
       enabled: vce.voiceEnabled,
@@ -334,192 +222,141 @@ export function TableRunner({ table, onDone }: Props) {
 
     const clock = new BreathClock(
       {
+        // ── Changement de phase ───────────────────────────────────────────────
         onPhaseChange: (phase) => {
-          voice.speak(phase.internalType)
+          if (!mountedRef.current) return
+
+          // Phase de préparation (phaseIndex = -1) → BreathEngine gère tout
+          if (phase.phaseIndex < 0) {
+            voice.speak(phase.internalType)
+            breathStore.getState().setPhaseComplete(phase.publicType, phase.internalType, phase.durationSeconds)
+            currentMetaRef.current     = null
+            currentPhaseDurRef.current = phase.durationSeconds
+            setDisplay(d => ({
+              ...d, phase: 'idle', phaseLabel: 'Préparation',
+              instruction: 'Préparez-vous…', phaseTotalS: phase.durationSeconds,
+              accentColor: '#4a5568', isCountdown: false, countdownN: undefined,
+            }))
+            return
+          }
+
+          const meta = metadata[phase.phaseIndex]
+          if (!meta) return
+
+          // Voix : skip pour countdown (parole gérée dans onTick, numéro par numéro)
+          if (!meta.isCountdown) voice.speak(phase.internalType)
+
+          // Mise à jour atomique du BreathEngine → BreathCircle s'anime automatiquement
           breathStore.getState().setPhaseComplete(phase.publicType, phase.internalType, phase.durationSeconds)
+
+          currentMetaRef.current     = meta
+          currentPhaseDurRef.current = phase.durationSeconds
+          lastCountdownNRef.current  = -1
+
+          setDisplay(d => ({
+            ...d,
+            rowIndex:    meta.rowIndex,
+            totalRows:   meta.totalRows,
+            phase:       phase.publicType === 'hold' ? 'hold' : 'recovery',
+            phaseLabel:  meta.phaseLabel,
+            instruction: meta.instruction,
+            description: meta.description,
+            phaseTotalS: phase.durationSeconds,
+            accentColor: meta.accentColor,
+            isCountdown: meta.isCountdown,
+            countdownN:  undefined,
+          }))
         },
-        onTick: (progress) => {
+
+        // ── Tick 60 fps ───────────────────────────────────────────────────────
+        onTick: (progress, remainingS) => {
+          if (!mountedRef.current) return
+
+          // BreathEngine : animation + timer interne
           breathStore.getState().setProgress(progress)
+          breathStore.getState().setRemaining(remainingS)
+
+          // Progression globale (phaseStartS + progression dans la phase courante)
+          const meta          = currentMetaRef.current
+          const phaseStartS   = meta?.phaseStartS ?? 0
+          const phaseDur      = currentPhaseDurRef.current
+          const totalProgress = Math.min(1, (phaseStartS + phaseDur * progress) / totalS)
+
+          // Décompte : vocal 10→4, visuel 10→4
+          let countdownN: number | undefined
+          if (meta?.isCountdown) {
+            const n = Math.ceil(remainingS)
+            countdownN = n > 0 ? n : undefined
+            if (n >= 4 && n !== lastCountdownNRef.current) {
+              lastCountdownNRef.current = n
+              const vceState = useVoiceGuideStore.getState()
+              if (vceState.voiceEnabled) speakCountdownNumber(n, vceState.voiceVolume, vceState.voiceRate)
+            }
+          }
+
+          setDisplay(d => ({
+            ...d,
+            phaseRemainingS: Math.ceil(remainingS),
+            totalProgress,
+            countdownN,
+          }))
         },
+
         onRepComplete: () => {},
-        onSessionComplete: () => {},
+
+        // ── Fin de session ────────────────────────────────────────────────────
+        onSessionComplete: () => {
+          if (!mountedRef.current) return
+          stopSession()
+          setDisplay(d => ({ ...d, phase: 'done', totalProgress: 1 }))
+        },
       },
       { enabled: snd.soundEnabled, volume: snd.soundVolume, soundSet: snd.soundSet, bowlOnPhase: snd.bowlOnPhase },
       { enabled: drn.droneEnabled, volume: drn.droneVolume },
     )
+
     clockRef.current = clock
+    breathStore.getState().startSession(`table-${table.id}`, 1)
     void clock.start(exercise, prepDuration)
-  }, [stopClock, table, breathStore])
-
-  // ── Master tick ─────────────────────────────────────────────────────────────
-  const tick = useCallback(() => {
-    if (!mountedRef.current) return
-
-    const elapsedS = (Date.now() - startMsRef.current - pausedMsRef.current) / 1000
-
-    if (elapsedS >= totalS) {
-      stopClock()
-      phaseRef.current = 'done'
-      setDisplay((d) => ({ ...d, phase: 'done', totalProgress: 1, phaseRemainingS: 0 }))
-      return
-    }
-
-    const segs  = segmentsRef.current
-    const segIdx = segs.findIndex((s) => elapsedS >= s.startS && elapsedS < s.endS)
-
-    if (segIdx === -1) {
-      rafRef.current = requestAnimationFrame(tick)
-      return
-    }
-
-    const seg = segs[segIdx]
-
-    // Changement de segment → nouveau BreathClock
-    if (segIdx !== lastSegmentRef.current) {
-      lastSegmentRef.current = segIdx
-      const segDuration = seg.endS - seg.startS
-      startSegmentClock(seg.type, segDuration, seg.rowIndex, seg.customPhaseType)
-    }
-
-    const segRemaining = seg.endS - elapsedS
-    const totalRows    = table.type === 'custom' ? (table.customSeriesCount ?? 0) : table.rows.length
-
-    // Ventilation libre (recovery sans BreathClock) : mettre à jour la progression manuellement
-    // Exclure countdown : pas de breathStore pendant le décompte
-    if (seg.type === 'recovery' && clockRef.current === null && seg.customPhaseType !== 'countdown') {
-      const segProgress = 1 - (segRemaining / (seg.endS - seg.startS))
-      breathStore.getState().setProgress(Math.min(1, Math.max(0, segProgress)))
-    }
-
-    let phaseLabel: string
-    let instruction: string
-    let description: string | undefined
-    let accentColor: string
-
-    if (table.type === 'custom' && seg.customPhaseType) {
-      phaseLabel  = seg.phaseLabel ?? seg.customPhaseType
-      instruction = `Série ${seg.rowIndex + 1} / ${totalRows} — ${phaseLabel}`
-      description = seg.description
-      accentColor = CUSTOM_PHASE_CONFIG[seg.customPhaseType as keyof typeof CUSTOM_PHASE_CONFIG]?.color ?? '#7561af'
-    } else {
-      phaseLabel  = seg.type === 'hold' ? 'Rétention' : 'Récupération'
-      instruction = seg.type === 'hold'
-        ? `Série ${seg.rowIndex + 1} / ${table.rows.length} — ${fmtTime(table.rows[seg.rowIndex].holdS)}`
-        : 'Récupération — Respirez'
-      description = seg.type === 'recovery' ? (table.recoveryNote ?? undefined) : undefined
-      accentColor = seg.type === 'hold' ? '#7561af' : '#34d399'
-    }
-
-    // ── Countdown : chiffre vocal + visuel (10 → 4) ──────────────────────────
-    let countdownN: number | undefined
-    if (seg.customPhaseType === 'countdown') {
-      const n = Math.ceil(segRemaining)
-      countdownN = n <= 10 ? n : undefined
-      if (n >= 4 && n !== lastCountdownNRef.current) {
-        lastCountdownNRef.current = n
-        const vce = useVoiceGuideStore.getState()
-        if (vce.voiceEnabled) speakCountdownNumber(n, vce.voiceVolume, vce.voiceRate)
-      }
-    }
-
-    setDisplay({
-      rowIndex:        seg.rowIndex,
-      totalRows,
-      phase:           seg.type === 'hold' ? 'hold' : 'recovery',
-      phaseLabel,
-      instruction,
-      description,
-      phaseRemainingS: Math.ceil(segRemaining),
-      phaseTotalS:     seg.endS - seg.startS,
-      totalProgress:   elapsedS / totalS,
-      accentColor,
-      countdownN,
-      isCountdown: seg.customPhaseType === 'countdown',
-    })
-    phaseRef.current = seg.type === 'hold' ? 'hold' : 'recovery'
-
-    rafRef.current = requestAnimationFrame(tick)
-  }, [totalS, stopClock, startSegmentClock, table.rows, table.type, table.customSeriesCount])
-
-  // ── Start ────────────────────────────────────────────────────────────────────
-  function start() {
-    startMsRef.current   = Date.now()
-    pausedMsRef.current  = 0
-    lastSegmentRef.current = -1
     setStarted(true)
-    rafRef.current = requestAnimationFrame(tick)
   }
 
-  // ── Pause / Resume ────────────────────────────────────────────────────────
+  // ── Pause / Resume ────────────────────────────────────────────────────────────
   function togglePause() {
     if (paused) {
-      // Reprendre
-      const pauseDuration = Date.now() - (pausedAtRef.current ?? Date.now())
-      pausedMsRef.current += pauseDuration
-      pausedAtRef.current  = null
       clockRef.current?.resume()
+      breathStore.getState().resumeSession()
       setPaused(false)
-      rafRef.current = requestAnimationFrame(tick)
     } else {
-      // Pause
-      pausedAtRef.current = Date.now()
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current)
-        rafRef.current = null
-      }
       clockRef.current?.pause()
+      breathStore.getState().pauseSession()
       setPaused(true)
     }
   }
 
-  // ── Visibility (iOS screen lock) ─────────────────────────────────────────
+  // ── Visibilité (verrouillage écran iOS) ───────────────────────────────────────
   useEffect(() => {
     const onVisibility = () => {
+      if (!started || paused) return
       if (document.visibilityState === 'hidden') {
-        if (rafRef.current !== null) {
-          cancelAnimationFrame(rafRef.current)
-          rafRef.current = null
-        }
         clockRef.current?.handlePageHidden()
       } else {
-        if (!paused && started) {
-          clockRef.current?.handlePageVisible()
-          rafRef.current = requestAnimationFrame(tick)
-        }
+        clockRef.current?.handlePageVisible()
       }
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => document.removeEventListener('visibilitychange', onVisibility)
-  }, [paused, started, tick])
+  }, [started, paused])
 
-  // ── Cleanup ──────────────────────────────────────────────────────────────
-  useEffect(() => {
-    mountedRef.current = true
-    return () => {
-      mountedRef.current = false
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
-      stopClock()
-    }
-  }, [stopClock])
+  // ── Render ────────────────────────────────────────────────────────────────────
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  if (display.phase === 'done') return <DoneScreen table={table} onDone={onDone} />
 
-  if (display.phase === 'done') {
-    return <DoneScreen table={table} onDone={onDone} />
-  }
+  if (!started) return (
+    <StartScreen table={table} totalS={totalS} onStart={start} onBack={onDone} />
+  )
 
-  if (!started) {
-    return (
-      <StartScreen
-        table={table}
-        totalS={totalS}
-        onStart={start}
-        onBack={onDone}
-      />
-    )
-  }
-
-  const accentColor = display.accentColor ?? (display.phase === 'hold' ? '#7561af' : '#34d399')
+  const accentColor = display.accentColor
 
   return (
     <div className="flex flex-col h-full bg-bg-base select-none">
@@ -527,15 +364,17 @@ export function TableRunner({ table, onDone }: Props) {
       {/* Header */}
       <div className="flex items-center gap-3 px-4 pt-6 pb-3">
         <button
-          onClick={() => { stopClock(); if (rafRef.current) cancelAnimationFrame(rafRef.current); onDone() }}
+          onClick={() => { stopSession(); onDone() }}
           className="p-1.5 text-text-muted"
         >
           <X size={20} />
         </button>
         <span className="flex-1 text-sm font-semibold text-text-primary">{table.name}</span>
-        <span className="text-xs text-text-muted">
-          Série {display.rowIndex + 1} / {display.totalRows}
-        </span>
+        {display.totalRows > 0 && (
+          <span className="text-xs text-text-muted">
+            Série {display.rowIndex + 1} / {display.totalRows}
+          </span>
+        )}
       </div>
 
       {/* Barre de progression globale */}
@@ -548,7 +387,7 @@ export function TableRunner({ table, onDone }: Props) {
         </div>
       </div>
 
-      {/* Phase label */}
+      {/* Label de phase */}
       <div className="px-4 pt-2 pb-1 text-center">
         <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: accentColor }}>
           {display.phaseLabel}
@@ -561,20 +400,14 @@ export function TableRunner({ table, onDone }: Props) {
         )}
       </div>
 
-      {/* BreathCircle ou grand chiffre décompte */}
+      {/* BreathCircle (BreathEngine) ou grand chiffre décompte */}
       <div className="flex-1 flex items-center justify-center">
         {display.isCountdown ? (
-          // Pendant le countdown : grand chiffre amber (10→4), vide en dessous
           display.countdownN !== undefined && display.countdownN >= 4 ? (
-            <span
-              style={{
-                fontSize: '160px',
-                fontWeight: 200,
-                color: '#f59e0b',
-                lineHeight: 1,
-                fontVariantNumeric: 'tabular-nums',
-              }}
-            >
+            <span style={{
+              fontSize: '160px', fontWeight: 200, color: '#f59e0b',
+              lineHeight: 1, fontVariantNumeric: 'tabular-nums',
+            }}>
               {display.countdownN}
             </span>
           ) : (
@@ -592,14 +425,16 @@ export function TableRunner({ table, onDone }: Props) {
         </span>
       </div>
 
-      {/* Mini table */}
-      <div className="px-4 pb-4">
-        <TableMiniPreview
-          rows={table.rows}
-          currentRowIndex={display.rowIndex}
-          currentPhase={display.phase === 'hold' ? 'hold' : 'recovery'}
-        />
-      </div>
+      {/* Mini preview (CO2/O2 seulement) */}
+      {table.type !== 'custom' && table.rows.length > 0 && (
+        <div className="px-4 pb-4">
+          <TableMiniPreview
+            rows={table.rows}
+            currentRowIndex={display.rowIndex}
+            currentPhase={display.phase === 'hold' ? 'hold' : 'recovery'}
+          />
+        </div>
+      )}
 
       {/* Contrôles */}
       <div className="flex justify-center pb-8">
@@ -621,7 +456,12 @@ function StartScreen({
 }: {
   table: ApneaTable; totalS: number; onStart: () => void; onBack: () => void
 }) {
-  const maxHold = Math.max(...table.rows.map((r) => r.holdS))
+  const isCustom  = table.type === 'custom'
+  const rowCount  = isCustom
+    ? (table.customProgram ? Math.max(...table.customProgram.filter(i => i.kind === 'group').map(i => i.kind === 'group' ? i.repeatCount : 0), 0) : 0)
+    : table.rows.length
+  const maxHold   = isCustom ? 0 : (table.rows.length > 0 ? Math.max(...table.rows.map(r => r.holdS)) : 0)
+
   return (
     <div className="flex flex-col h-full bg-bg-base px-6">
       <div className="flex items-center gap-2 pt-6 pb-4">
@@ -632,31 +472,34 @@ function StartScreen({
       <div className="flex-1 flex flex-col justify-center space-y-6">
         <div className="text-center space-y-2">
           <p className="text-4xl font-bold text-text-primary uppercase tracking-wide">
-            {table.type.toUpperCase()}
+            {table.type === 'co2' ? 'CO₂' : table.type === 'o2' ? 'O₂' : 'Custom'}
           </p>
           <p className="text-text-muted text-sm">
-            {table.rows.length} séries · {fmtTime(totalS)} total · Max {fmtTime(maxHold)}
+            {rowCount > 0 ? `${rowCount} séries · ` : ''}{fmtTime(totalS)} total
+            {maxHold > 0 ? ` · Max ${fmtTime(maxHold)}` : ''}
           </p>
         </div>
 
-        {/* Aperçu miniature */}
-        <div className="space-y-1">
-          {table.rows.map((row, i) => (
-            <div key={i} className="flex items-center gap-2 text-xs">
-              <span className="w-5 text-right text-text-muted font-mono">{i + 1}</span>
-              <div className="flex-1 h-2 rounded-full bg-bg-elevated overflow-hidden flex">
-                <div
-                  className="h-full bg-purple-500/60"
-                  style={{ width: `${(row.holdS / (row.holdS + row.recoveryS)) * 100}%` }}
-                />
-                <div className="flex-1 h-full bg-green-500/30" />
+        {/* Aperçu barres (CO2/O2 seulement) */}
+        {!isCustom && table.rows.length > 0 && (
+          <div className="space-y-1">
+            {table.rows.map((row, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs">
+                <span className="w-5 text-right text-text-muted font-mono">{i + 1}</span>
+                <div className="flex-1 h-2 rounded-full bg-bg-elevated overflow-hidden flex">
+                  <div
+                    className="h-full bg-purple-500/60"
+                    style={{ width: `${(row.holdS / (row.holdS + row.recoveryS)) * 100}%` }}
+                  />
+                  <div className="flex-1 h-full bg-green-500/30" />
+                </div>
+                <span className="text-text-muted w-20 text-right">
+                  {fmtTime(row.holdS)} / {fmtTime(row.recoveryS)}
+                </span>
               </div>
-              <span className="text-text-muted w-20 text-right">
-                {fmtTime(row.holdS)} / {fmtTime(row.recoveryS)}
-              </span>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="pb-10">
@@ -674,6 +517,9 @@ function StartScreen({
 // ── Écran de fin ──────────────────────────────────────────────────────────────
 
 function DoneScreen({ table, onDone }: { table: ApneaTable; onDone: () => void }) {
+  const seriesCount = table.type === 'custom'
+    ? customProgramDuration(table.customProgram ?? [])   // durée en secondes pour custom
+    : table.rows.length
   return (
     <div className="flex flex-col h-full bg-bg-base items-center justify-center px-6 text-center space-y-6">
       <div className="w-20 h-20 rounded-full bg-green-500/20 flex items-center justify-center text-4xl">
@@ -681,7 +527,9 @@ function DoneScreen({ table, onDone }: { table: ApneaTable; onDone: () => void }
       </div>
       <div>
         <p className="text-2xl font-bold text-text-primary">Table terminée</p>
-        <p className="text-text-muted mt-1">{table.name} · {table.rows.length} séries</p>
+        <p className="text-text-muted mt-1">
+          {table.name} · {table.type !== 'custom' ? `${seriesCount} séries` : 'Programme terminé'}
+        </p>
       </div>
       <button
         onClick={onDone}
@@ -693,7 +541,7 @@ function DoneScreen({ table, onDone }: { table: ApneaTable; onDone: () => void }
   )
 }
 
-// ── Mini preview en cours de session ──────────────────────────────────────────
+// ── Mini preview (CO2/O2) ─────────────────────────────────────────────────────
 
 function TableMiniPreview({
   rows, currentRowIndex, currentPhase,
@@ -702,7 +550,7 @@ function TableMiniPreview({
   currentRowIndex: number
   currentPhase: 'hold' | 'recovery'
 }) {
-  const maxHold = Math.max(...rows.map((r) => r.holdS), 1)
+  const maxHold = Math.max(...rows.map(r => r.holdS), 1)
   return (
     <div className="flex items-end gap-0.5 h-8">
       {rows.map((row, i) => {
@@ -713,17 +561,13 @@ function TableMiniPreview({
           <div key={i} className="flex-1 flex flex-col gap-0.5 items-center">
             <div
               className={`w-full rounded-sm transition-colors ${
-                isCurrentHold   ? 'bg-purple-400'  :
-                isDone          ? 'bg-purple-400/30' :
-                                  'bg-white/10'
+                isCurrentHold ? 'bg-purple-400' : isDone ? 'bg-purple-400/30' : 'bg-white/10'
               }`}
               style={{ height: `${Math.max(20, (row.holdS / maxHold) * 100)}%` }}
             />
             <div
               className={`w-full h-0.5 rounded-sm transition-colors ${
-                isCurrentRecovery ? 'bg-green-400'  :
-                isDone            ? 'bg-green-400/30' :
-                                    'bg-white/5'
+                isCurrentRecovery ? 'bg-green-400' : isDone ? 'bg-green-400/30' : 'bg-white/5'
               }`}
             />
           </div>

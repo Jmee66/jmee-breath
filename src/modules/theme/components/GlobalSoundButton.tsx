@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Volume2, VolumeX } from 'lucide-react'
-import { useSoundStore }     from '@modules/breath-engine/sounds/soundStore'
-import { useRiverStore }     from '@modules/breath-engine/sounds/riverStore'
+import { useSoundStore }      from '@modules/breath-engine/sounds/soundStore'
+import { useRiverStore }      from '@modules/breath-engine/sounds/riverStore'
 import { useVoiceGuideStore } from '@modules/breath-engine/voice/voiceGuideStore'
 
 // ── Ligne toggle + slider ─────────────────────────────────────────────────────
@@ -47,13 +47,9 @@ function SoundRow({ label, enabled, volume, onToggle, onVolume }: {
 // ── Bouton son global ─────────────────────────────────────────────────────────
 
 /**
- * Bouton Volume accessible depuis toutes les pages.
- * Sur mobile   : flottant en haut à droite (position fixed).
- * Sur desktop  : intégré dans la SideNav.
- *
- * Props :
- *   variant="floating"  → bouton positionné en fixed (AppShell mobile)
- *   variant="inline"    → bouton sans position absolue (SideNav desktop)
+ * variant="floating" → mobile : bouton + panneau tous deux en position fixed,
+ *                       ancrés en haut à droite, sans débordement possible.
+ * variant="inline"   → desktop SideNav : relatif au flux.
  */
 export function GlobalSoundButton({ variant = 'floating' }: { variant?: 'floating' | 'inline' }) {
   const [open, setOpen] = useState(false)
@@ -75,73 +71,114 @@ export function GlobalSoundButton({ variant = 'floating' }: { variant?: 'floatin
 
   const anyEnabled = soundEnabled || riverEnabled || voiceEnabled
 
-  const buttonEl = (
-    <button
-      onClick={() => setOpen((v) => !v)}
-      style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        width: '36px', height: '36px',
-        borderRadius: '10px',
-        border: '1px solid var(--color-border)',
-        background: open ? 'var(--color-bg-elevated)' : 'transparent',
-        color: 'var(--color-text-muted)',
-        opacity: anyEnabled ? 1 : 0.5,
-        cursor: 'pointer',
-      }}
-      aria-label="Réglages son"
-    >
-      {anyEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
-    </button>
-  )
-
-  const panel = open ? (
-    <>
-      <div
-        onClick={() => setOpen(false)}
-        style={{ position: 'fixed', inset: 0, zIndex: 49 }}
-      />
-      <div style={{
-        position: 'absolute',
-        top: variant === 'floating' ? '44px' : 'auto',
-        bottom: variant === 'inline'   ? '44px' : 'auto',
-        right: 0,
-        zIndex: 50,
-        width: '210px',
-        background: 'var(--color-bg-surface)',
-        border: '1px solid var(--color-border)',
-        borderRadius: '14px',
-        padding: '12px',
-        display: 'flex', flexDirection: 'column', gap: '10px',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-      }}>
-        <SoundRow label="Sons"    enabled={soundEnabled} volume={soundVolume} onToggle={() => setSoundEnabled(!soundEnabled)} onVolume={setSoundVolume} />
-        <SoundRow label="Rivière" enabled={riverEnabled} volume={riverVolume} onToggle={() => setRiverEnabled(!riverEnabled)} onVolume={setRiverVolume} />
-        <SoundRow label="Voix"    enabled={voiceEnabled} volume={voiceVolume} onToggle={() => setVoiceEnabled(!voiceEnabled)} onVolume={setVoiceVolume} />
-      </div>
-    </>
-  ) : null
-
+  // ── Rendu mobile (floating) ──────────────────────────────────────────────────
   if (variant === 'floating') {
+    const TOP    = 'calc(env(safe-area-inset-top, 0px) + 12px)'
+    const RIGHT  = '16px'
+    const PANEL_TOP = 'calc(env(safe-area-inset-top, 0px) + 56px)'   // bouton 36px + 8px gap
+
     return (
-      <div
-        style={{
-          position: 'fixed',
-          top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
-          right: '16px',
-          zIndex: 40,
-        }}
-      >
-        {buttonEl}
-        {panel}
-      </div>
+      <>
+        {/* Bouton — fixed haut droite */}
+        <button
+          onClick={() => setOpen((v) => !v)}
+          style={{
+            position: 'fixed',
+            top: TOP,
+            right: RIGHT,
+            zIndex: 55,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: '36px', height: '36px',
+            borderRadius: '10px',
+            border: '1px solid var(--color-border)',
+            background: open ? 'var(--color-bg-elevated)' : 'var(--color-bg-base)',
+            color: 'var(--color-text-muted)',
+            opacity: anyEnabled ? 1 : 0.5,
+            cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+          }}
+          aria-label="Réglages son"
+        >
+          {anyEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+        </button>
+
+        {/* Panneau — fixed ancré en haut à droite, s'ouvre vers le bas */}
+        {open && (
+          <>
+            {/* Backdrop */}
+            <div
+              onClick={() => setOpen(false)}
+              style={{ position: 'fixed', inset: 0, zIndex: 53 }}
+            />
+            {/* Panneau */}
+            <div style={{
+              position: 'fixed',
+              top: PANEL_TOP,
+              right: RIGHT,
+              zIndex: 54,
+              width: '220px',
+              background: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border)',
+              borderRadius: '14px',
+              padding: '14px',
+              display: 'flex', flexDirection: 'column', gap: '12px',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+            }}>
+              <SoundRow label="Sons"    enabled={soundEnabled} volume={soundVolume} onToggle={() => setSoundEnabled(!soundEnabled)} onVolume={setSoundVolume} />
+              <SoundRow label="Rivière" enabled={riverEnabled} volume={riverVolume} onToggle={() => setRiverEnabled(!riverEnabled)} onVolume={setRiverVolume} />
+              <SoundRow label="Voix"    enabled={voiceEnabled} volume={voiceVolume} onToggle={() => setVoiceEnabled(!voiceEnabled)} onVolume={setVoiceVolume} />
+            </div>
+          </>
+        )}
+      </>
     )
   }
 
-  // inline (SideNav desktop)
+  // ── Rendu desktop (inline dans SideNav) ───────────────────────────────────────
   return (
     <div style={{ position: 'relative' }}>
-      {buttonEl}
-      {panel}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          width: '36px', height: '36px',
+          borderRadius: '10px',
+          border: '1px solid var(--color-border)',
+          background: open ? 'var(--color-bg-elevated)' : 'transparent',
+          color: 'var(--color-text-muted)',
+          opacity: anyEnabled ? 1 : 0.5,
+          cursor: 'pointer',
+        }}
+        aria-label="Réglages son"
+      >
+        {anyEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+      </button>
+
+      {open && (
+        <>
+          <div
+            onClick={() => setOpen(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 49 }}
+          />
+          <div style={{
+            position: 'absolute',
+            bottom: '44px',
+            left: 0,
+            zIndex: 50,
+            width: '210px',
+            background: 'var(--color-bg-surface)',
+            border: '1px solid var(--color-border)',
+            borderRadius: '14px',
+            padding: '12px',
+            display: 'flex', flexDirection: 'column', gap: '10px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+          }}>
+            <SoundRow label="Sons"    enabled={soundEnabled} volume={soundVolume} onToggle={() => setSoundEnabled(!soundEnabled)} onVolume={setSoundVolume} />
+            <SoundRow label="Rivière" enabled={riverEnabled} volume={riverVolume} onToggle={() => setRiverEnabled(!riverEnabled)} onVolume={setRiverVolume} />
+            <SoundRow label="Voix"    enabled={voiceEnabled} volume={voiceVolume} onToggle={() => setVoiceEnabled(!voiceEnabled)} onVolume={setVoiceVolume} />
+          </div>
+        </>
+      )}
     </div>
   )
 }

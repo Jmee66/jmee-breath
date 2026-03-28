@@ -77,6 +77,9 @@ export interface ApneaTable {
   // Custom Programme (nouveau système flexible) — remplace customPhases + customSeriesCount
   customProgram?: CustomItem[]
 
+  // Description libre — affichée pendant la phase de préparation
+  description?: string
+
   // CO2 / O2 : note affichée pendant la récupération (texte libre)
   recoveryNote?: string
 

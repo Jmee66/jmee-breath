@@ -57,6 +57,7 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
     }
     return defaultCustomProgram()
   })
+  const [description,     setDescription]     = useState(initialTable?.description ?? '')
   const [recoveryNote,    setRecoveryNote]    = useState(
     initialTable?.recoveryNote ?? 'Respire librement, récupère.',
   )
@@ -110,6 +111,7 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
     try {
       await onSave({
         name: name.trim(),
+        description: description.trim() || undefined,
         type,
         rows,
         referenceMaxS,
@@ -164,6 +166,18 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
             onChange={(e) => setName(e.target.value)}
             placeholder="Ma table CO₂…"
             className="w-full rounded-xl bg-bg-elevated border border-border px-3 py-2.5 text-sm text-text-primary placeholder:text-white/25 outline-none focus:border-accent"
+          />
+        </div>
+
+        {/* Description */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wide text-text-muted">Description</label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Objectif, consignes, contexte de cet exercice…"
+            rows={3}
+            className="w-full rounded-xl bg-bg-elevated border border-border px-3 py-2.5 text-sm text-text-primary placeholder:text-white/25 outline-none focus:border-accent resize-none"
           />
         </div>
 

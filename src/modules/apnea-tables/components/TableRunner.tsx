@@ -251,6 +251,7 @@ export function TableRunner({ table, onDone }: Props) {
             setDisplay(d => ({
               ...d, phase: 'idle', phaseLabel: 'Préparation',
               instruction: 'Préparez-vous…', phaseTotalS: phase.durationSeconds,
+              description: table.description,
               accentColor: '#4a5568', isCountdown: false, countdownN: undefined,
             }))
             return

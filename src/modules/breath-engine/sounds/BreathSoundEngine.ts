@@ -63,11 +63,22 @@ const BOWL_HARMONICS = [
   { ratio: 8.933, gain: 0.02, decay: 1.6 },   // 3e partiel (très faible)
 ]
 
+// ── Modulation respiratoire (ventilation / récupération) ─────────────────────
+// Pendant les phases recovery (≥ 10 s) : cycle 7 s montée + 14 s descente.
+// Appliquée via un GainNode dédié inséré entre globalLpf et masterGain.
+// Amplitude très discrète (0.88 → 1.0) pour suggérer sans imposer.
+const BREATH_MOD_MIN    = 0.88
+const BREATH_MOD_MAX    = 1.0
+const BREATH_MOD_INHALE = 7    // secondes — montée
+const BREATH_MOD_EXHALE = 14   // secondes — descente
+const BREATH_MOD_MIN_DUR = 10  // phase trop courte → pas de modulation
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class BreathSoundEngine {
   private readonly masterGain: GainNode
   private readonly globalLpf: BiquadFilterNode   // nœud permanent — pas de fuite mémoire
+  private readonly breathModGain: GainNode        // modulation respiratoire recovery
   private pendingOscillators: OscillatorNode[] = []
   private bowlScheduled = false
   private readonly bowlOnPhase: boolean
@@ -77,7 +88,8 @@ export class BreathSoundEngine {
     settings: SoundSettings,
   ) {
     this.bowlOnPhase = settings.bowlOnPhase ?? false
-    // Chaîne fixe : oscillateurs → globalLpf → masterGain → destination
+
+    // Chaîne : oscillateurs → globalLpf → breathModGain → masterGain → destination
     this.masterGain = audioCtx.createGain()
     this.masterGain.gain.value = settings.enabled ? settings.volume : 0
 
@@ -86,7 +98,11 @@ export class BreathSoundEngine {
     this.globalLpf.frequency.value = LPF_FREQ
     this.globalLpf.Q.value         = LPF_Q
 
-    this.globalLpf.connect(this.masterGain)
+    this.breathModGain = audioCtx.createGain()
+    this.breathModGain.gain.value = 1.0   // neutre hors recovery
+
+    this.globalLpf.connect(this.breathModGain)
+    this.breathModGain.connect(this.masterGain)
     this.masterGain.connect(audioCtx.destination)
   }
 
@@ -119,6 +135,12 @@ export class BreathSoundEngine {
       if (phase.repIndex >= 0) {
         this.schedulePhasePad(phase)
       }
+
+      // Modulation respiratoire sur les phases recovery suffisamment longues
+      if (phase.internalType === 'recovery' && phase.repIndex >= 0
+          && phase.durationSeconds >= BREATH_MOD_MIN_DUR) {
+        this.scheduleBreathModulation(phase)
+      }
     }
   }
 
@@ -129,6 +151,9 @@ export class BreathSoundEngine {
     }
     this.pendingOscillators = []
     this.bowlScheduled = false
+    // Annule toutes les automations de breathModGain et revient à neutre
+    this.breathModGain.gain.cancelScheduledValues(now)
+    this.breathModGain.gain.setTargetAtTime(1.0, now, 0.05)
   }
 
   // ── Bol tibétain ─────────────────────────────────────────────────────────
@@ -257,6 +282,40 @@ export class BreathSoundEngine {
       osc.stop(stop)
       this.track(osc)
     })
+  }
+
+  // ── Modulation respiratoire recovery ─────────────────────────────────────
+
+  /**
+   * Applique un cycle 7 s montée / 14 s descente sur breathModGain pendant
+   * toute la durée de la phase recovery. Subtil (0.88 ↔ 1.0).
+   * Les ramps sont pré-schedulées via l'automation Web Audio → sample-accurate,
+   * aucun rAF ni setInterval.
+   */
+  private scheduleBreathModulation(phase: ScheduledPhase): void {
+    const g   = this.breathModGain.gain
+    const t   = phase.startTime
+    const end = t + phase.durationSeconds
+
+    // Partir de MOD_MIN (début du cycle "inspir")
+    g.setValueAtTime(BREATH_MOD_MIN, t)
+
+    let cursor = t
+    while (cursor < end - 0.5) {
+      // Montée sur 7 s (inspiration)
+      const riseEnd = Math.min(cursor + BREATH_MOD_INHALE, end)
+      g.linearRampToValueAtTime(BREATH_MOD_MAX, riseEnd)
+      cursor = riseEnd
+      if (cursor >= end - 0.5) break
+
+      // Descente sur 14 s (expiration)
+      const fallEnd = Math.min(cursor + BREATH_MOD_EXHALE, end)
+      g.linearRampToValueAtTime(BREATH_MOD_MIN, fallEnd)
+      cursor = fallEnd
+    }
+
+    // Retour immédiat à 1.0 après la phase — n'affecte pas la phase suivante
+    g.setValueAtTime(1.0, end + 0.05)
   }
 
   // ── Utilitaire ────────────────────────────────────────────────────────────

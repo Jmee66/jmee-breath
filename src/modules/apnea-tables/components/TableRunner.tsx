@@ -387,8 +387,8 @@ export function TableRunner({ table, onDone }: Props) {
         </div>
       </div>
 
-      {/* Label de phase */}
-      <div className="px-4 pt-2 pb-1 text-center">
+      {/* Label de phase — hauteur fixe pour éviter tout saut de layout */}
+      <div className="px-4 pt-2 pb-1 text-center" style={{ minHeight: '64px' }}>
         <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: accentColor }}>
           {display.phaseLabel}
         </p>
@@ -400,22 +400,23 @@ export function TableRunner({ table, onDone }: Props) {
         )}
       </div>
 
-      {/* BreathCircle (BreathEngine) ou grand chiffre décompte */}
+      {/* Centre — BreathVisual toujours présent, décompte superposé en overlay */}
       <div className="flex-1 flex items-center justify-center">
-        {display.isCountdown ? (
-          display.countdownN !== undefined && display.countdownN >= 4 ? (
+        <div style={{ position: 'relative', width: 220, height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <BreathVisual />
+          {/* Overlay décompte : s'affiche par-dessus sans déplacer le layout */}
+          {display.isCountdown && display.countdownN !== undefined && display.countdownN >= 4 && (
             <span style={{
-              fontSize: '160px', fontWeight: 200, color: '#f59e0b',
+              position: 'absolute', inset: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '120px', fontWeight: 200, color: '#f59e0b',
               lineHeight: 1, fontVariantNumeric: 'tabular-nums',
+              pointerEvents: 'none',
             }}>
               {display.countdownN}
             </span>
-          ) : (
-            <div style={{ width: 200, height: 200 }} />
-          )
-        ) : (
-          <BreathVisual />
-        )}
+          )}
+        </div>
       </div>
 
       {/* Timer phase */}

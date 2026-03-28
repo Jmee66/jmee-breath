@@ -21,7 +21,8 @@ Avant d'implémenter quoi que ce soit, je dois répondre à ces questions :
    - Ambiance rivière → `riverStore` / `useRiverAmbience`
    - Voix guidée → `voiceGuideStore` / `voice.speak()`
    - État de phase courant → `breathStore`
-   - Animation du cercle → `BreathCircle` (lit `breathStore` automatiquement)
+   - Animation visuelle complète → `BreathVisual` = `ProgressArc` (arc SVG) + `BreathCircle` (disque)
+     ⚠️ Ne jamais utiliser `BreathCircle` seul dans une page — toujours `BreathVisual`
 
 2. **Est-ce que je suis en train de recoder un comportement déjà géré ?**
    - Un `setInterval` / `RAF` custom pour le timing → NON, utiliser `BreathClock`

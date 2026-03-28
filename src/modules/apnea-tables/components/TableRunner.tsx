@@ -197,8 +197,6 @@ export function TableRunner({ table, onDone }: Props) {
   // Construction une seule fois (mémoïsé)
   const { exercise, metadata, totalS } = useMemo(() => buildTableExercise(table), [table])
 
-  // La table contient-elle des phases décompte ?
-  const hasCountdown = useMemo(() => metadata.some(m => m.isCountdown), [metadata])
 
   // ── Arrêt propre ─────────────────────────────────────────────────────────────
   const stopSession = useCallback(() => {
@@ -466,19 +464,17 @@ export function TableRunner({ table, onDone }: Props) {
         >
           {paused ? <Play size={22} /> : <Pause size={22} />}
         </button>
-        {hasCountdown && (
-          <button
-            onClick={toggleCountdownNumbers}
-            title={showCountdownNumbers ? 'Masquer les chiffres du décompte' : 'Afficher les chiffres du décompte'}
-            className="h-10 w-10 rounded-full border border-border flex items-center justify-center transition-colors"
-            style={{
-              background: showCountdownNumbers ? 'var(--color-accent-dim)' : 'var(--color-bg-elevated)',
-              color: showCountdownNumbers ? 'var(--color-accent)' : 'var(--color-text-muted)',
-            }}
-          >
-            {showCountdownNumbers ? <Eye size={16} /> : <EyeOff size={16} />}
-          </button>
-        )}
+        <button
+          onClick={toggleCountdownNumbers}
+          title={showCountdownNumbers ? 'Masquer les chiffres du décompte' : 'Afficher les chiffres du décompte'}
+          className="h-10 w-10 rounded-full border border-border flex items-center justify-center transition-colors"
+          style={{
+            background: showCountdownNumbers ? 'var(--color-accent-dim)' : 'var(--color-bg-elevated)',
+            color: showCountdownNumbers ? 'var(--color-accent)' : 'var(--color-text-muted)',
+          }}
+        >
+          {showCountdownNumbers ? <Eye size={16} /> : <EyeOff size={16} />}
+        </button>
       </div>
     </div>
   )

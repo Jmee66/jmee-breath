@@ -740,35 +740,37 @@ function PhaseItemCard({
         <span className="text-xs text-white/30 w-14 text-right shrink-0">{fmtDur(item.durationS)}</span>
       </div>
 
-      {/* Description + options countdown */}
+      {/* Toggle chiffres — visible directement pour countdown, sans ouvrir la description */}
+      {item.phaseType === 'countdown' && (
+        <div className="flex items-center justify-between px-3 pb-2.5">
+          <span className="text-xs text-text-muted">Chiffres du décompte</span>
+          <button
+            role="switch"
+            aria-checked={item.showNumbers !== false}
+            onClick={() => onChange({ ...item, showNumbers: !(item.showNumbers !== false) })}
+            style={{
+              width: '32px', height: '18px', borderRadius: '9px', border: 'none',
+              background: item.showNumbers !== false ? 'var(--color-accent)' : 'var(--color-bg-overlay)',
+              position: 'relative', cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0,
+            }}
+          >
+            <span style={{
+              position: 'absolute', top: '2px',
+              left: item.showNumbers !== false ? '16px' : '2px',
+              width: '14px', height: '14px', borderRadius: '50%',
+              background: 'white', transition: 'left 0.2s',
+            }} />
+          </button>
+        </div>
+      )}
+
+      {/* Description */}
       {descOpen && (
-        <div className="px-3 pb-3 space-y-2">
+        <div className="px-3 pb-3">
           <textarea rows={2} value={item.description}
             onChange={(e) => onChange({ ...item, description: e.target.value })}
             placeholder="Instruction affichée pendant cette phase…"
             className="w-full bg-bg-overlay rounded-lg px-3 py-2 text-xs text-text-primary placeholder:text-white/20 outline-none resize-none border border-border focus:border-accent" />
-          {item.phaseType === 'countdown' && (
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-text-muted">Afficher les chiffres du décompte</span>
-              <button
-                role="switch"
-                aria-checked={item.showNumbers !== false}
-                onClick={() => onChange({ ...item, showNumbers: !(item.showNumbers !== false) })}
-                style={{
-                  width: '32px', height: '18px', borderRadius: '9px', border: 'none',
-                  background: item.showNumbers !== false ? 'var(--color-accent)' : 'var(--color-bg-overlay)',
-                  position: 'relative', cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0,
-                }}
-              >
-                <span style={{
-                  position: 'absolute', top: '2px',
-                  left: item.showNumbers !== false ? '16px' : '2px',
-                  width: '14px', height: '14px', borderRadius: '50%',
-                  background: 'white', transition: 'left 0.2s',
-                }} />
-              </button>
-            </div>
-          )}
         </div>
       )}
     </div>

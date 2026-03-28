@@ -30,6 +30,31 @@ function makeHoldExercise(holdS: number, label: string): Exercise {
   }
 }
 
+/** Crée un Exercise pour n'importe quelle phase standard (inhale, exhale, hold). */
+function makePhaseExercise(phaseType: string, durationS: number, label: string): Exercise {
+  const breathType: 'inhale' | 'hold' | 'exhale' | 'recovery' =
+    phaseType === 'inhale'  ? 'inhale' :
+    phaseType === 'exhale'  ? 'exhale' :
+    phaseType === 'hold'    ? 'hold'   :
+    'recovery'
+
+  return {
+    id: `table-${phaseType}-${durationS}`,
+    name: label,
+    description: '',
+    category: 'preparation',
+    difficulty: 1,
+    tags: [],
+    phases: [{ type: breathType, durationSeconds: durationS } as Phase],
+    repetitions: 1,
+    restBetweenRepsSeconds: 0,
+    isPreset: true,
+    createdAt: '',
+    updatedAt: '',
+    customPresets: [],
+  }
+}
+
 // La récupération CO₂/O₂ est une ventilation libre (pas de BreathClock imposé).
 
 // ── Constantes custom ─────────────────────────────────────────────────────────
@@ -196,20 +221,75 @@ export function TableRunner({ table, onDone }: Props) {
     type: 'hold' | 'recovery',
     durationS: number,
     rowIndex: number,
+    customPhaseType?: string,
   ) => {
     stopClock()
 
-    if (type === 'recovery') {
-      // Ventilation libre — pas de BreathClock, juste le store en état recovery
-      const totalRows = table.type === 'custom' ? (table.customSeriesCount ?? 1) : table.rows.length
-      void totalRows  // utilisé dans le label affiché dans le tick
+    const totalRows = table.type === 'custom' ? (table.customSeriesCount ?? 1) : table.rows.length
+
+    // ── Custom phases: inhale / exhale / hold → BreathClock ───────────────────
+    if (customPhaseType === 'inhale' || customPhaseType === 'exhale' || customPhaseType === 'hold') {
+      const label = `${CUSTOM_PHASE_LABELS[customPhaseType] ?? customPhaseType} — ${fmtTime(durationS)}`
+      const exercise = makePhaseExercise(customPhaseType, durationS, label)
+
+      const sndC = useSoundStore.getState()
+      const drnC = useDroneStore.getState()
+      const vceC = useVoiceGuideStore.getState()
+
+      const voiceC = new BreathVoiceGuide({
+        enabled: vceC.voiceEnabled,
+        volume:  vceC.voiceVolume,
+        rate:    vceC.voiceRate,
+        pitch:   vceC.voicePitch,
+      })
+      voiceC.setExercise(exercise)
+      voiceRef.current = voiceC
+
+      const prepDurationC = vceC.voiceEnabled
+        ? estimatePreparationDuration(exercise, vceC.voiceRate)
+        : 2
+
+      const clockC = new BreathClock(
+        {
+          onPhaseChange: (phase) => {
+            voiceC.speak(phase.internalType)
+            breathStore.getState().setPhaseComplete(phase.publicType, phase.internalType, phase.durationSeconds)
+          },
+          onTick: (progress) => {
+            breathStore.getState().setProgress(progress)
+          },
+          onRepComplete: () => {},
+          onSessionComplete: () => {},
+        },
+        { enabled: sndC.soundEnabled, volume: sndC.soundVolume, soundSet: sndC.soundSet, bowlOnPhase: sndC.bowlOnPhase },
+        { enabled: drnC.droneEnabled, volume: drnC.droneVolume },
+      )
+      clockRef.current = clockC
+      void clockC.start(exercise, prepDurationC)
+      return
+    }
+
+    // ── Custom: prep → calm hold circle ───────────────────────────────────────
+    if (customPhaseType === 'prep') {
+      breathStore.getState().setPhaseComplete('inhale', 'hold-full', durationS)
+      return
+    }
+
+    // ── Custom: ventilation → recovery state ──────────────────────────────────
+    if (customPhaseType === 'ventilation') {
+      breathStore.getState().setPhaseComplete('exhale', 'recovery', durationS)
+      return
+    }
+
+    // ── Recovery (custom or standard) → ventilation libre ────────────────────
+    if (type === 'recovery' || customPhaseType === 'recovery') {
+      void totalRows
       breathStore.getState().setPhaseComplete('exhale', 'recovery', durationS)
       // clockRef reste null — le tick master mettra à jour setProgress manuellement
       return
     }
 
-    // ── Hold : BreathClock classique ──────────────────────────────────────────
-    const totalRows = table.type === 'custom' ? (table.customSeriesCount ?? 1) : table.rows.length
+    // ── Standard Hold : BreathClock classique ─────────────────────────────────
     const exercise = makeHoldExercise(durationS, `Série ${rowIndex + 1}/${totalRows}`)
 
     const snd = useSoundStore.getState()
@@ -275,7 +355,7 @@ export function TableRunner({ table, onDone }: Props) {
     if (segIdx !== lastSegmentRef.current) {
       lastSegmentRef.current = segIdx
       const segDuration = seg.endS - seg.startS
-      startSegmentClock(seg.type, segDuration, seg.rowIndex)
+      startSegmentClock(seg.type, segDuration, seg.rowIndex, seg.customPhaseType)
     }
 
     const segRemaining = seg.endS - elapsedS

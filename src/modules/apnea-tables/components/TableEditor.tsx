@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ArrowLeft, Wand2, Sliders, RefreshCw, X, ChevronDown, ChevronUp, Copy, Plus, Layers, Clipboard, ClipboardCheck } from 'lucide-react'
+import { ArrowLeft, Wand2, Sliders, RefreshCw, X, ChevronDown, ChevronUp, Copy, Plus, Layers, Clipboard, ClipboardCheck, ArrowUpFromLine } from 'lucide-react'
 import type { ApneaTable, TableType, RecoveryPattern, TableRow, CustomPhaseType, CustomItem, CustomPhaseItem, CustomGroupItem } from '../types'
 import {
   generateRows, totalTableDuration, fmtTime,
@@ -428,6 +428,85 @@ function ProgramEditor({
     onChange([...program, item])
   }
 
+  // ── Bug 1: Phase-in-group mutations lifted to ProgramEditor ───────────────
+
+  function updatePhaseInGroup(groupId: string, phaseId: string, upd: CustomPhaseItem) {
+    onChange(program.map((it) => {
+      if (it.id !== groupId || it.kind !== 'group') return it
+      return { ...it, items: it.items.map((p) => p.id === phaseId ? upd : p) }
+    }))
+  }
+  function removePhaseFromGroup(groupId: string, phaseId: string) {
+    onChange(program.map((it) => {
+      if (it.id !== groupId || it.kind !== 'group') return it
+      if (it.items.length <= 1) return it
+      return { ...it, items: it.items.filter((p) => p.id !== phaseId) }
+    }))
+  }
+  function movePhaseInGroup(groupId: string, phaseId: string, dir: -1 | 1) {
+    onChange(program.map((it) => {
+      if (it.id !== groupId || it.kind !== 'group') return it
+      const idx = it.items.findIndex((p) => p.id === phaseId)
+      if (idx < 0) return it
+      const next = idx + dir
+      if (next < 0 || next >= it.items.length) return it
+      const arr = [...it.items]
+      ;[arr[idx], arr[next]] = [arr[next], arr[idx]]
+      return { ...it, items: arr }
+    }))
+  }
+  function copyPhaseInGroup(groupId: string, phaseId: string) {
+    onChange(program.map((it) => {
+      if (it.id !== groupId || it.kind !== 'group') return it
+      const idx = it.items.findIndex((p) => p.id === phaseId)
+      if (idx < 0) return it
+      const clone: CustomPhaseItem = { ...it.items[idx], id: genId() }
+      const arr = [...it.items]
+      arr.splice(idx + 1, 0, clone)
+      return { ...it, items: arr }
+    }))
+  }
+  function addPhaseToGroup(groupId: string) {
+    onChange(program.map((it) => {
+      if (it.id !== groupId || it.kind !== 'group') return it
+      const ph: CustomPhaseItem = {
+        id: genId(), kind: 'phase', phaseType: 'recovery',
+        durationS: 120, description: CUSTOM_PHASE_CONFIG['recovery'].defaultDesc,
+      }
+      return { ...it, items: [...it.items, ph] }
+    }))
+  }
+
+  // ── Bug 2A: Extract phase from group ──────────────────────────────────────
+
+  function extractPhaseFromGroup(groupId: string, phaseId: string) {
+    const group = program.find((it) => it.id === groupId && it.kind === 'group') as CustomGroupItem | undefined
+    if (!group) return
+    const phase = group.items.find((p) => p.id === phaseId)
+    if (!phase) return
+    const extractedPhase: CustomPhaseItem = { ...phase, id: genId() }
+    const newProgram = program.flatMap((it) => {
+      if (it.id !== groupId || it.kind !== 'group') return [it]
+      const newGroup = { ...it, items: it.items.filter((p) => p.id !== phaseId) }
+      if (newGroup.items.length === 0) return [extractedPhase]
+      return [newGroup, extractedPhase]
+    })
+    onChange(newProgram)
+  }
+
+  // ── Bug 2B: Wrap standalone phase in group ────────────────────────────────
+
+  function wrapPhaseInGroup(phaseId: string) {
+    onChange(program.map((it) => {
+      if (it.id !== phaseId || it.kind !== 'phase') return it
+      const group: CustomGroupItem = {
+        id: genId(), kind: 'group', label: 'Cycle', repeatCount: 1,
+        items: [{ ...it, id: genId() }],
+      }
+      return group
+    }))
+  }
+
   return (
     <div className="space-y-3">
       {/* Durée totale */}
@@ -447,6 +526,7 @@ function ProgramEditor({
                 onMoveUp={() => moveItem(item.id, -1)}
                 onMoveDown={() => moveItem(item.id, 1)}
                 onCopy={() => copyItem(item.id)}
+                onWrap={() => wrapPhaseInGroup(item.id)}
               />
             : <GroupItemCard
                 key={item.id} item={item} index={idx} total={program.length}
@@ -455,6 +535,12 @@ function ProgramEditor({
                 onMoveUp={() => moveItem(item.id, -1)}
                 onMoveDown={() => moveItem(item.id, 1)}
                 onCopy={() => copyItem(item.id)}
+                onUpdatePhase={(phaseId, upd) => updatePhaseInGroup(item.id, phaseId, upd)}
+                onRemovePhase={(phaseId) => removePhaseFromGroup(item.id, phaseId)}
+                onMovePhase={(phaseId, dir) => movePhaseInGroup(item.id, phaseId, dir)}
+                onCopyPhase={(phaseId) => copyPhaseInGroup(item.id, phaseId)}
+                onAddPhase={() => addPhaseToGroup(item.id)}
+                onExtractPhase={(phaseId) => extractPhaseFromGroup(item.id, phaseId)}
               />
         ))}
       </div>
@@ -481,16 +567,18 @@ function ProgramEditor({
 // ── PhaseItemCard ─────────────────────────────────────────────────────────────
 
 function PhaseItemCard({
-  item, index, total, onChange, onRemove, onMoveUp, onMoveDown, onCopy,
+  item, index, total, onChange, onRemove, onMoveUp, onMoveDown, onCopy, onExtract, onWrap,
 }: {
-  item:       CustomPhaseItem
-  index:      number
-  total:      number
-  onChange:   (upd: CustomPhaseItem) => void
-  onRemove:   () => void
-  onMoveUp:   () => void
-  onMoveDown: () => void
-  onCopy:     () => void
+  item:        CustomPhaseItem
+  index:       number
+  total:       number
+  onChange:    (upd: CustomPhaseItem) => void
+  onRemove:    () => void
+  onMoveUp:    () => void
+  onMoveDown:  () => void
+  onCopy:      () => void
+  onExtract?:  () => void
+  onWrap?:     () => void
 }) {
   const [descOpen,  setDescOpen]  = useState(false)
   const [copied,    setCopied]    = useState(false)
@@ -547,6 +635,16 @@ function PhaseItemCard({
 
         {/* Actions */}
         <div className="flex items-center gap-1 shrink-0">
+          {onExtract && (
+            <button onClick={onExtract} title="Extraire du groupe" className="p-1.5 text-white/30 hover:text-accent rounded-lg">
+              <ArrowUpFromLine size={13} />
+            </button>
+          )}
+          {onWrap && (
+            <button onClick={onWrap} title="Grouper" className="p-1.5 text-white/30 hover:text-accent rounded-lg">
+              <Layers size={13} />
+            </button>
+          )}
           <button onClick={() => setDescOpen(!descOpen)} className="p-1.5 text-white/30 hover:text-white/60 rounded-lg">
             {descOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           </button>
@@ -616,51 +714,26 @@ function PhaseItemCard({
 
 function GroupItemCard({
   item, index, total, onChange, onRemove, onMoveUp, onMoveDown, onCopy,
+  onUpdatePhase, onRemovePhase, onMovePhase, onCopyPhase, onAddPhase, onExtractPhase,
 }: {
-  item:       CustomGroupItem
-  index:      number
-  total:      number
-  onChange:   (upd: CustomGroupItem) => void
-  onRemove:   () => void
-  onMoveUp:   () => void
-  onMoveDown: () => void
-  onCopy:     () => void
+  item:           CustomGroupItem
+  index:          number
+  total:          number
+  onChange:       (upd: CustomGroupItem) => void
+  onRemove:       () => void
+  onMoveUp:       () => void
+  onMoveDown:     () => void
+  onCopy:         () => void
+  onUpdatePhase:  (phaseId: string, upd: CustomPhaseItem) => void
+  onRemovePhase:  (phaseId: string) => void
+  onMovePhase:    (phaseId: string, dir: -1 | 1) => void
+  onCopyPhase:    (phaseId: string) => void
+  onAddPhase:     () => void
+  onExtractPhase: (phaseId: string) => void
 }) {
   const [open, setOpen] = useState(true)
   const groupDurationS  = item.items.reduce((s, p) => s + p.durationS, 0)
   const totalDurationS  = groupDurationS * item.repeatCount
-
-  function updatePhase(id: string, upd: CustomPhaseItem) {
-    onChange({ ...item, items: item.items.map((p) => p.id === id ? upd : p) })
-  }
-  function removePhase(id: string) {
-    if (item.items.length <= 1) return
-    onChange({ ...item, items: item.items.filter((p) => p.id !== id) })
-  }
-  function movePhase(id: string, dir: -1 | 1) {
-    const idx = item.items.findIndex((p) => p.id === id)
-    if (idx < 0) return
-    const next = idx + dir
-    if (next < 0 || next >= item.items.length) return
-    const arr = [...item.items]
-    ;[arr[idx], arr[next]] = [arr[next], arr[idx]]
-    onChange({ ...item, items: arr })
-  }
-  function copyPhase(id: string) {
-    const idx = item.items.findIndex((p) => p.id === id)
-    if (idx < 0) return
-    const clone: CustomPhaseItem = { ...item.items[idx], id: genId() }
-    const arr = [...item.items]
-    arr.splice(idx + 1, 0, clone)
-    onChange({ ...item, items: arr })
-  }
-  function addPhase() {
-    const ph: CustomPhaseItem = {
-      id: genId(), kind: 'phase', phaseType: 'recovery',
-      durationS: 120, description: CUSTOM_PHASE_CONFIG['recovery'].defaultDesc,
-    }
-    onChange({ ...item, items: [...item.items, ph] })
-  }
 
   return (
     <div className="rounded-xl border border-accent/30 bg-bg-elevated overflow-hidden">
@@ -720,14 +793,15 @@ function GroupItemCard({
           {item.items.map((phase, pIdx) => (
             <PhaseItemCard
               key={phase.id} item={phase} index={pIdx} total={item.items.length}
-              onChange={(upd) => updatePhase(phase.id, upd)}
-              onRemove={() => removePhase(phase.id)}
-              onMoveUp={() => movePhase(phase.id, -1)}
-              onMoveDown={() => movePhase(phase.id, 1)}
-              onCopy={() => copyPhase(phase.id)}
+              onChange={(upd) => onUpdatePhase(phase.id, upd)}
+              onRemove={() => onRemovePhase(phase.id)}
+              onMoveUp={() => onMovePhase(phase.id, -1)}
+              onMoveDown={() => onMovePhase(phase.id, 1)}
+              onCopy={() => onCopyPhase(phase.id)}
+              onExtract={() => onExtractPhase(phase.id)}
             />
           ))}
-          <button onClick={addPhase}
+          <button onClick={onAddPhase}
             className="w-full py-2 rounded-lg border border-dashed border-border/60 text-xs text-text-muted hover:text-text-primary hover:border-accent/40 transition-colors">
             + Phase
           </button>

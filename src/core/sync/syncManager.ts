@@ -3,6 +3,7 @@ import { supabase } from '../supabase/client'
 import { eventBus } from '../events/eventBus'
 import type { Exercise, Session, FreeTimerSession } from '../types'
 import type { CustomWarmup } from '@modules/free-timer/types'
+import type { ApneaTable } from '@modules/apnea-tables/types'
 
 const MAX_RETRIES = 5
 const BATCH_SIZE = 50
@@ -20,6 +21,8 @@ class SyncManager {
   private isOnline = navigator.onLine
   private isFlushing = false
   private userId: string | null = null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private realtimeChannel: any = null
 
   constructor() {
     window.addEventListener('online', () => {
@@ -36,6 +39,40 @@ class SyncManager {
     if (userId && this.isOnline) {
       void this.pull()
       void this.flush()
+      this.subscribeRealtime(userId)
+    } else {
+      this.unsubscribeRealtime()
+    }
+  }
+
+  /** Abonnement Realtime Supabase — les tables créées sur d'autres appareils arrivent automatiquement. */
+  private subscribeRealtime(userId: string): void {
+    this.unsubscribeRealtime()
+    this.realtimeChannel = supabase
+      .channel(`apnea-tables-${userId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'apnea_tables', filter: `user_id=eq.${userId}` },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        async (payload: any) => {
+          if (payload.eventType === 'DELETE') {
+            if (payload.old?.id) {
+              await db.apneaTables.delete(payload.old.id as string)
+              eventBus.emit('SYNC_COMPLETED', { table: 'apnea_tables', pushed: 0, pulled: 1 })
+            }
+          } else if (payload.new) {
+            await db.apneaTables.put(mapRemoteApneaTable(payload.new))
+            eventBus.emit('SYNC_COMPLETED', { table: 'apnea_tables', pushed: 0, pulled: 1 })
+          }
+        },
+      )
+      .subscribe()
+  }
+
+  private unsubscribeRealtime(): void {
+    if (this.realtimeChannel) {
+      void supabase.removeChannel(this.realtimeChannel)
+      this.realtimeChannel = null
     }
   }
 
@@ -100,6 +137,8 @@ class SyncManager {
         await db.freeTimerSessions.update(entry.recordId, { syncedAt: now })
       } else if (entry.table === 'custom_warmups') {
         await db.customWarmups.update(entry.recordId, { syncedAt: now })
+      } else if (entry.table === 'apnea_tables') {
+        await db.apneaTables.update(entry.recordId, { syncedAt: now })
       }
 
       eventBus.emit('SYNC_COMPLETED', {
@@ -180,6 +219,19 @@ class SyncManager {
         await db.customWarmups.put(mapRemoteCustomWarmup(w))
       }
       eventBus.emit('SYNC_COMPLETED', { table: 'custom_warmups', pushed: 0, pulled: remoteWarmups.length })
+    }
+
+    // Pull apnea tables
+    const { data: remoteTables } = await supabase
+      .from('apnea_tables').select('*').eq('user_id', this.userId)
+    if (remoteTables?.length) {
+      for (const t of remoteTables) {
+        const local = await db.apneaTables.get(t.id)
+        if (!local || new Date(t.updated_at) > new Date(local.updatedAt)) {
+          await db.apneaTables.put(mapRemoteApneaTable(t))
+        }
+      }
+      eventBus.emit('SYNC_COMPLETED', { table: 'apnea_tables', pushed: 0, pulled: remoteTables.length })
     }
   }
 
@@ -288,6 +340,31 @@ class SyncManager {
       }
       pulled += remoteWarmups.length
       eventBus.emit('SYNC_COMPLETED', { table: 'custom_warmups', pushed: 0, pulled: remoteWarmups.length })
+    }
+
+    // ── 10. Push apnea tables ────────────────────────────────────────────────
+    const localTables = await db.apneaTables.toArray()
+    if (localTables.length) {
+      const payloads = localTables.map((t) => apneaTableToSupabase(t, uid))
+      const { error } = await supabase.from('apnea_tables').upsert(payloads)
+      if (!error) {
+        pushed += localTables.length
+        await db.apneaTables.toCollection().modify({ syncedAt: new Date().toISOString() })
+      }
+    }
+
+    // ── 11. Pull complet apnea tables ────────────────────────────────────────
+    const { data: remoteTables } = await supabase
+      .from('apnea_tables').select('*').eq('user_id', uid)
+    if (remoteTables?.length) {
+      for (const t of remoteTables) {
+        const local = await db.apneaTables.get(t.id)
+        if (!local || new Date(t.updated_at) > new Date(local.updatedAt)) {
+          await db.apneaTables.put(mapRemoteApneaTable(t))
+        }
+      }
+      pulled += remoteTables.length
+      eventBus.emit('SYNC_COMPLETED', { table: 'apnea_tables', pushed: 0, pulled: remoteTables.length })
     }
 
     return { pushed, pulled }
@@ -418,6 +495,47 @@ function customWarmupToSupabase(w: CustomWarmup, userId: string): Record<string,
     recovery_instruction: w.recoveryInstruction,
     created_at:           w.createdAt,
     updated_at:           w.updatedAt,
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapRemoteApneaTable(r: any): ApneaTable {
+  return {
+    id:                 r.id,
+    name:               r.name,
+    type:               r.type,
+    rows:               r.rows               ?? [],
+    referenceMaxS:      r.reference_max_s    ?? 90,
+    seriesCount:        r.series_count       ?? 8,
+    recoveryPattern:    r.recovery_pattern   ?? 'soupir',
+    formeFactor:        r.forme_factor       ?? 0,
+    customProgram:      r.custom_program     ?? undefined,
+    customPhases:       r.custom_phases      ?? undefined,
+    customSeriesCount:  r.custom_series_count ?? undefined,
+    recoveryNote:       r.recovery_note      ?? undefined,
+    createdAt:          r.created_at,
+    updatedAt:          r.updated_at,
+    syncedAt:           new Date().toISOString(),
+  }
+}
+
+function apneaTableToSupabase(t: ApneaTable, userId: string): Record<string, unknown> {
+  return {
+    id:                   t.id,
+    user_id:              userId,
+    name:                 t.name,
+    type:                 t.type,
+    rows:                 t.rows,
+    reference_max_s:      t.referenceMaxS,
+    series_count:         t.seriesCount,
+    recovery_pattern:     t.recoveryPattern,
+    forme_factor:         t.formeFactor,
+    custom_program:       t.customProgram      ?? null,
+    custom_phases:        t.customPhases       ?? null,
+    custom_series_count:  t.customSeriesCount  ?? null,
+    recovery_note:        t.recoveryNote       ?? null,
+    created_at:           t.createdAt,
+    updated_at:           t.updatedAt,
   }
 }
 

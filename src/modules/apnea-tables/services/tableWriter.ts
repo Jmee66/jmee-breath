@@ -5,17 +5,21 @@ import type { ApneaTable } from '../types'
 
 function toSupabasePayload(t: ApneaTable, userId: string): Record<string, unknown> {
   return {
-    id:               t.id,
-    user_id:          userId,
-    name:             t.name,
-    type:             t.type,
-    rows:             t.rows,
-    reference_max_s:  t.referenceMaxS,
-    series_count:     t.seriesCount,
-    recovery_pattern: t.recoveryPattern,
-    forme_factor:     t.formeFactor,
-    created_at:       t.createdAt,
-    updated_at:       t.updatedAt,
+    id:                   t.id,
+    user_id:              userId,
+    name:                 t.name,
+    type:                 t.type,
+    rows:                 t.rows,
+    reference_max_s:      t.referenceMaxS,
+    series_count:         t.seriesCount,
+    recovery_pattern:     t.recoveryPattern,
+    forme_factor:         t.formeFactor,
+    custom_program:       t.customProgram       ?? null,
+    custom_phases:        t.customPhases        ?? null,
+    custom_series_count:  t.customSeriesCount   ?? null,
+    recovery_note:        t.recoveryNote        ?? null,
+    created_at:           t.createdAt,
+    updated_at:           t.updatedAt,
   }
 }
 

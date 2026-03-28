@@ -7,6 +7,7 @@ import { totalTableDuration, fmtTime } from '../services/tableGenerator'
 import { TableEditor } from './TableEditor'
 import { TableRunner } from './TableRunner'
 import { useSettingsStore } from '@modules/settings'
+import { eventBus } from '@core/events/eventBus'
 
 const TYPE_LABEL: Record<ApneaTable['type'], string> = {
   co2:    'CO₂',
@@ -36,6 +37,15 @@ export default function ApneaTablesPage() {
 
   useEffect(() => { reload() }, [reload])
   useEffect(() => { void loadSettings() }, [loadSettings])
+
+  // Reload automatique quand le sync ramène des tables depuis un autre appareil
+  useEffect(() => {
+    return eventBus.on('SYNC_COMPLETED', (payload) => {
+      if (payload.table === 'apnea_tables' && payload.pulled > 0) {
+        reload()
+      }
+    })
+  }, [reload])
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
 

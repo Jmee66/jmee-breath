@@ -115,11 +115,21 @@ void clockRef.current.start(exercise, prepDuration)
 
 ---
 
-## Avant tout PR / commit
+## Avant tout push
 
+### Versioning — OBLIGATOIRE
+Incrémenter `version` dans `package.json` à chaque push selon ce schéma :
+- **patch** `0.x.Y+1` → bug fix, correction visuelle, refactor sans nouvelle feature
+- **minor** `0.X+1.0` → nouvelle feature, nouveau composant, nouveau module
+- **major** `X+1.0.0` → rupture d'architecture, refonte complète
+
+Toujours commiter le `package.json` versionné dans le même commit que le code.
+
+### Checklist architecture
 - [ ] Aucun `setInterval` / `RAF` custom pour la logique métier
 - [ ] Aucun `new BreathClock()` multiple pour une même session
 - [ ] Aucun son déclenché manuellement dans un composant UI
-- [ ] `BreathCircle` utilisé tel quel, sans override d'animation
+- [ ] `BreathVisual` utilisé (jamais `BreathCircle` seul dans une page)
 - [ ] Les types de phase (`PhaseType`, `InternalPhaseType`) viennent de `breath-engine`
 - [ ] `ExerciseCategory` partagé entre `exercises` et `apnea-tables` (pas de doublon)
+- [ ] `package.json` versionné avant le push

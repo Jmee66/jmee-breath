@@ -133,6 +133,11 @@ export class BreathWindEngine {
    * Par cycle :
    *   · Inspiration (inhaleS) : gain 0→1,   filtre FILTER_LOW→FILTER_HIGH
    *   · Expiration  (exhaleS) : gain 1→0,   filtre FILTER_HIGH→FILTER_LOW
+   *
+   * Le gain utilise une courbe en S (deux demi-ramps) pour que la
+   * perception de durée colle mieux aux valeurs affichées :
+   *   Inspir : montée rapide à 0.5 (premier tiers), lente vers 1.0 (deux tiers)
+   *   Expir  : descente lente de 1.0 à 0.5 (deux tiers), rapide vers 0 (dernier tiers)
    */
   private _schedule(from: number, inhaleS: number, exhaleS: number): void {
     const g = this.breathGain.gain
@@ -144,15 +149,23 @@ export class BreathWindEngine {
 
     let cursor = from
     while (cursor < end) {
-      // Inspiration — s'ouvre
+      // ── Inspiration — s'ouvre ──────────────────────────────────
+      const riseMid = cursor + inhaleS * 0.33
       const riseEnd = cursor + inhaleS
-      g.linearRampToValueAtTime(1.0,         riseEnd)
+      // Gain : montée rapide 0→0.5, puis lente 0.5→1.0
+      g.linearRampToValueAtTime(0.5,  riseMid)
+      g.linearRampToValueAtTime(1.0,  riseEnd)
+      // Filtre : ramp linéaire continue sur toute la durée
       f.linearRampToValueAtTime(FILTER_HIGH, riseEnd)
       cursor = riseEnd
 
-      // Expiration — se referme
+      // ── Expiration — se referme ────────────────────────────────
+      const fallMid = cursor + exhaleS * 0.67
       const fallEnd = cursor + exhaleS
-      g.linearRampToValueAtTime(0.0001,     fallEnd)
+      // Gain : descente lente 1.0→0.5, puis rapide 0.5→~0
+      g.linearRampToValueAtTime(0.5,    fallMid)
+      g.linearRampToValueAtTime(0.0001, fallEnd)
+      // Filtre : ramp linéaire continue sur toute la durée
       f.linearRampToValueAtTime(FILTER_LOW, fallEnd)
       cursor = fallEnd
     }

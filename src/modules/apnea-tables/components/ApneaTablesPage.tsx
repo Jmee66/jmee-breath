@@ -30,6 +30,7 @@ const CATEGORY_TABS: { value: CategoryFilter; label: string }[] = [
   { value: 'meditation',  label: 'Méditation' },
   { value: 'visualization', label: 'Visualisation' },
   { value: 'panic',       label: 'Panique' },
+  { value: 'warmup',      label: 'Échauffement' },
   { value: 'custom',      label: 'Perso' },
 ]
 

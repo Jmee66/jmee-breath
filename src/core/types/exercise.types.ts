@@ -7,6 +7,7 @@ export type ExerciseCategory =
   | 'preparation'     // Préparation & Récupération
   | 'meditation'      // Méditation
   | 'panic'           // Gestion de la panique
+  | 'warmup'          // Échauffement
   | 'custom'          // Personnalisé
 
 export type DifficultyLevel = 1 | 2 | 3 | 4 | 5

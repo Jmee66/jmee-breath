@@ -16,6 +16,7 @@ const CATEGORY_TABS: { value: CategoryFilter; label: string }[] = [
   { value: 'preparation',   label: 'Préparation' },
   { value: 'meditation',    label: 'Méditation' },
   { value: 'panic',         label: 'Panique' },
+  { value: 'warmup',        label: 'Échauffement' },
   { value: 'custom',        label: 'Perso' },
 ]
 

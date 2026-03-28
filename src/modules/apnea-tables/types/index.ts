@@ -44,6 +44,8 @@ export interface CustomPhaseItem {
   phaseType:   CustomPhaseType
   durationS:   number
   description: string
+  /** Countdown only — afficher les chiffres pendant le décompte (défaut : true) */
+  showNumbers?: boolean
 }
 
 export interface CustomGroupItem {

@@ -9,7 +9,7 @@
  */
 
 import { useRef, useCallback, useEffect, useState, useMemo } from 'react'
-import { X, Pause, Play, Eye, EyeOff } from 'lucide-react'
+import { X, Pause, Play } from 'lucide-react'
 import type { ApneaTable, CustomPhaseType, RunnerPhase } from '../types'
 import type { Exercise, Phase, PhaseType } from '@core/types'
 import { fmtTime, CUSTOM_PHASE_CONFIG, customProgramDuration } from '../services/tableGenerator'
@@ -36,6 +36,7 @@ interface SegmentMeta {
   description: string | undefined
   accentColor: string
   isCountdown: boolean
+  showNumbers: boolean         // countdown only — afficher les chiffres
   phaseStartS: number          // cumul de toutes les phases précédentes (pour totalProgress)
 }
 
@@ -71,15 +72,15 @@ function buildTableExercise(table: ApneaTable): {
       const serie = `Série ${i + 1} / ${rows.length}`
       push(
         { type: 'inhale',   durationSeconds: INHALE_S,                               label: serie },
-        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Inspiration', instruction: serie, description: undefined, accentColor: '#1a85c2', isCountdown: false },
+        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Inspiration', instruction: serie, description: undefined, accentColor: '#1a85c2', isCountdown: false, showNumbers: true },
       )
       push(
         { type: 'hold',     durationSeconds: row.holdS,                               label: `Rétention ${fmtTime(row.holdS)}` },
-        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Rétention',   instruction: serie, description: undefined, accentColor: '#7561af', isCountdown: false },
+        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Rétention',   instruction: serie, description: undefined, accentColor: '#7561af', isCountdown: false, showNumbers: true },
       )
       push(
         { type: 'recovery', durationSeconds: Math.max(2, row.recoveryS - INHALE_S),  label: 'Récupérez' },
-        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Récupération', instruction: 'Respirez librement', description: table.recoveryNote ?? undefined, accentColor: '#34d399', isCountdown: false },
+        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Récupération', instruction: 'Respirez librement', description: table.recoveryNote ?? undefined, accentColor: '#34d399', isCountdown: false, showNumbers: true },
       )
     })
 
@@ -90,17 +91,19 @@ function buildTableExercise(table: ApneaTable): {
     for (const item of program) {
       if (item.kind === 'phase') {
         const cfg = CUSTOM_PHASE_CONFIG[item.phaseType]
+        const isCountdown = item.phaseType === 'countdown'
         push(
           { type: mapCustomType(item.phaseType), durationSeconds: item.durationS, label: cfg.label },
-          { rowIndex: 0, totalRows: 1, phaseLabel: cfg.label, instruction: cfg.label, description: item.description || undefined, accentColor: cfg.color, isCountdown: item.phaseType === 'countdown' },
+          { rowIndex: 0, totalRows: 1, phaseLabel: cfg.label, instruction: cfg.label, description: item.description || undefined, accentColor: cfg.color, isCountdown, showNumbers: isCountdown ? (item.showNumbers !== false) : true },
         )
       } else {
         for (let r = 0; r < item.repeatCount; r++) {
           for (const p of item.items) {
             const cfg = CUSTOM_PHASE_CONFIG[p.phaseType]
+            const isCountdown = p.phaseType === 'countdown'
             push(
               { type: mapCustomType(p.phaseType), durationSeconds: p.durationS, label: cfg.label },
-              { rowIndex: r, totalRows: item.repeatCount, phaseLabel: cfg.label, instruction: `${item.label} ${r + 1} / ${item.repeatCount}`, description: p.description || undefined, accentColor: cfg.color, isCountdown: p.phaseType === 'countdown' },
+              { rowIndex: r, totalRows: item.repeatCount, phaseLabel: cfg.label, instruction: `${item.label} ${r + 1} / ${item.repeatCount}`, description: p.description || undefined, accentColor: cfg.color, isCountdown, showNumbers: isCountdown ? (p.showNumbers !== false) : true },
             )
           }
         }
@@ -152,6 +155,7 @@ interface Display {
   totalProgress:   number
   accentColor:     string
   isCountdown:     boolean
+  showNumbers:     boolean
   countdownN?:     number
 }
 
@@ -176,23 +180,11 @@ export function TableRunner({ table, onDone }: Props) {
   const [display,  setDisplay]  = useState<Display>({
     rowIndex: 0, totalRows: 0, phase: 'idle', phaseLabel: '',
     instruction: '', phaseRemainingS: 0, phaseTotalS: 0,
-    totalProgress: 0, accentColor: '#7561af', isCountdown: false,
+    totalProgress: 0, accentColor: '#7561af', isCountdown: false, showNumbers: true,
   })
   const [paused,  setPaused]  = useState(false)
   const [started, setStarted] = useState(false)
 
-  // Toggle affichage chiffres du décompte — persisté en localStorage
-  const [showCountdownNumbers, setShowCountdownNumbers] = useState<boolean>(() => {
-    try { return localStorage.getItem('apnea-show-countdown-numbers') !== 'false' }
-    catch { return true }
-  })
-  function toggleCountdownNumbers() {
-    setShowCountdownNumbers(v => {
-      const next = !v
-      try { localStorage.setItem('apnea-show-countdown-numbers', String(next)) } catch {}
-      return next
-    })
-  }
 
   // Construction une seule fois (mémoïsé)
   const { exercise, metadata, totalS } = useMemo(() => buildTableExercise(table), [table])
@@ -250,7 +242,7 @@ export function TableRunner({ table, onDone }: Props) {
               ...d, phase: 'idle', phaseLabel: 'Préparation',
               instruction: 'Préparez-vous…', phaseTotalS: phase.durationSeconds,
               description: table.description,
-              accentColor: '#4a5568', isCountdown: false, countdownN: undefined,
+              accentColor: '#4a5568', isCountdown: false, showNumbers: true, countdownN: undefined,
             }))
             return
           }
@@ -279,6 +271,7 @@ export function TableRunner({ table, onDone }: Props) {
             phaseTotalS: phase.durationSeconds,
             accentColor: meta.accentColor,
             isCountdown: meta.isCountdown,
+            showNumbers: meta.showNumbers,
             countdownN:  undefined,
           }))
         },
@@ -414,8 +407,8 @@ export function TableRunner({ table, onDone }: Props) {
       <div className="flex-1 flex items-center justify-center">
         <div style={{ position: 'relative', width: 220, height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <BreathVisual />
-          {/* Overlay décompte : visible uniquement si showCountdownNumbers */}
-          {display.isCountdown && showCountdownNumbers && display.countdownN !== undefined && display.countdownN >= 4 && (
+          {/* Overlay décompte : visible uniquement si showNumbers (réglé dans l'éditeur) */}
+          {display.isCountdown && display.showNumbers && display.countdownN !== undefined && display.countdownN >= 4 && (
             <span style={{
               position: 'absolute', inset: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -456,24 +449,13 @@ export function TableRunner({ table, onDone }: Props) {
         )}
       </div>
 
-      {/* Contrôles — pause + toggle décompte */}
-      <div className="flex items-center justify-center gap-4 pb-8">
+      {/* Contrôles */}
+      <div className="flex items-center justify-center pb-8">
         <button
           onClick={togglePause}
           className="h-14 w-14 rounded-full bg-bg-elevated border border-border flex items-center justify-center text-text-primary"
         >
           {paused ? <Play size={22} /> : <Pause size={22} />}
-        </button>
-        <button
-          onClick={toggleCountdownNumbers}
-          title={showCountdownNumbers ? 'Masquer les chiffres du décompte' : 'Afficher les chiffres du décompte'}
-          className="h-10 w-10 rounded-full border border-border flex items-center justify-center transition-colors"
-          style={{
-            background: showCountdownNumbers ? 'var(--color-accent-dim)' : 'var(--color-bg-elevated)',
-            color: showCountdownNumbers ? 'var(--color-accent)' : 'var(--color-text-muted)',
-          }}
-        >
-          {showCountdownNumbers ? <Eye size={16} /> : <EyeOff size={16} />}
         </button>
       </div>
     </div>

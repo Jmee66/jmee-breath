@@ -18,6 +18,7 @@ const CATEGORY_OPTIONS: { value: ExerciseCategory; label: string }[] = [
   { value: 'preparation',   label: 'Préparation & Récupération' },
   { value: 'meditation',    label: 'Méditation' },
   { value: 'panic',         label: 'Gestion de la panique' },
+  { value: 'warmup',        label: 'Échauffement' },
   { value: 'custom',        label: 'Personnalisé' },
 ]
 

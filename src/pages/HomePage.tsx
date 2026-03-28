@@ -59,6 +59,11 @@ export default function HomePage() {
     .map((id) => warmups.find((w) => w.id === id))
     .filter((w): w is CustomWarmup => w !== undefined)
 
+  // Sous-listes pour le filtre "Échauffements" : exercises + tables avec category='warmup' + CustomWarmups
+  const favExercisesWarmup = favExercises.filter(e => e.category === 'warmup')
+  const favTablesWarmup    = favTables.filter(t => t.category === 'warmup')
+  const warmupTabEmpty     = favWarmups.length === 0 && favTablesWarmup.length === 0 && favExercisesWarmup.length === 0
+
   const totalFavs = favExercises.length + favTables.length + favWarmups.length
 
   const activeList = tab === 'exercises' ? favExercises
@@ -125,43 +130,51 @@ export default function HomePage() {
       ) : (
         <div className="space-y-3">
           {/* Exercises section */}
-          {(tab === 'all' || tab === 'exercises') && favExercises.length > 0 && (
-            <>
-              {tab === 'all' && <SectionHeader label="Exercices" to="/exercises" />}
-              {favExercises.map((ex, idx) => (
-                <FavoriteCard
-                  key={ex.id}
-                  exercise={ex}
-                  isFirst={idx === 0}
-                  isLast={idx === favExercises.length - 1}
-                  reorderMode={reorderMode && tab === 'exercises'}
-                  onMoveUp={() => void moveFavorite(ex.id, 'up')}
-                  onMoveDown={() => void moveFavorite(ex.id, 'down')}
-                />
-              ))}
-            </>
-          )}
+          {(() => {
+            const list = tab === 'warmups' ? favExercisesWarmup : favExercises
+            const show = (tab === 'all' || tab === 'exercises' || tab === 'warmups') && list.length > 0
+            return show ? (
+              <>
+                {tab === 'all' && <SectionHeader label="Exercices" to="/exercises" />}
+                {list.map((ex, idx) => (
+                  <FavoriteCard
+                    key={ex.id}
+                    exercise={ex}
+                    isFirst={idx === 0}
+                    isLast={idx === list.length - 1}
+                    reorderMode={reorderMode && tab === 'exercises'}
+                    onMoveUp={() => void moveFavorite(ex.id, 'up')}
+                    onMoveDown={() => void moveFavorite(ex.id, 'down')}
+                  />
+                ))}
+              </>
+            ) : null
+          })()}
 
           {/* Tables section */}
-          {(tab === 'all' || tab === 'tables') && favTables.length > 0 && (
-            <>
-              {tab === 'all' && <SectionHeader label="Tables Apnée" to="/tables" />}
-              {favTables.map((t, idx) => (
-                <TableFavoriteCard
-                  key={t.id}
-                  table={t}
-                  isFirst={idx === 0}
-                  isLast={idx === favTables.length - 1}
-                  reorderMode={reorderMode && tab === 'tables'}
-                  onRun={() => navigate('/tables')}
-                  onMoveUp={() => void moveTableFavorite(t.id, 'up')}
-                  onMoveDown={() => void moveTableFavorite(t.id, 'down')}
-                />
-              ))}
-            </>
-          )}
+          {(() => {
+            const list = tab === 'warmups' ? favTablesWarmup : favTables
+            const show = (tab === 'all' || tab === 'tables' || tab === 'warmups') && list.length > 0
+            return show ? (
+              <>
+                {tab === 'all' && <SectionHeader label="Tables Apnée" to="/tables" />}
+                {list.map((t, idx) => (
+                  <TableFavoriteCard
+                    key={t.id}
+                    table={t}
+                    isFirst={idx === 0}
+                    isLast={idx === list.length - 1}
+                    reorderMode={reorderMode && tab === 'tables'}
+                    onRun={() => navigate('/tables')}
+                    onMoveUp={() => void moveTableFavorite(t.id, 'up')}
+                    onMoveDown={() => void moveTableFavorite(t.id, 'down')}
+                  />
+                ))}
+              </>
+            ) : null
+          })()}
 
-          {/* Warmups section */}
+          {/* Warmups section (CustomWarmup) */}
           {(tab === 'all' || tab === 'warmups') && favWarmups.length > 0 && (
             <>
               {tab === 'all' && <SectionHeader label="Échauffements" to="/timer" />}
@@ -181,7 +194,7 @@ export default function HomePage() {
           )}
 
           {/* Empty filtered tab */}
-          {tab !== 'all' && (activeList?.length ?? 0) === 0 && (
+          {tab !== 'all' && (tab === 'warmups' ? warmupTabEmpty : (activeList?.length ?? 0) === 0) && (
             <EmptyFilteredTab tab={tab} />
           )}
 

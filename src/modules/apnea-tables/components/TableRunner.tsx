@@ -9,7 +9,7 @@
  */
 
 import { useRef, useCallback, useEffect, useState, useMemo } from 'react'
-import { X, Pause, Play } from 'lucide-react'
+import { X, Pause, Play, Eye, EyeOff } from 'lucide-react'
 import type { ApneaTable, CustomPhaseType, RunnerPhase } from '../types'
 import type { Exercise, Phase, PhaseType } from '@core/types'
 import { fmtTime, CUSTOM_PHASE_CONFIG, customProgramDuration } from '../services/tableGenerator'
@@ -181,8 +181,24 @@ export function TableRunner({ table, onDone }: Props) {
   const [paused,  setPaused]  = useState(false)
   const [started, setStarted] = useState(false)
 
+  // Toggle affichage chiffres du décompte — persisté en localStorage
+  const [showCountdownNumbers, setShowCountdownNumbers] = useState<boolean>(() => {
+    try { return localStorage.getItem('apnea-show-countdown-numbers') !== 'false' }
+    catch { return true }
+  })
+  function toggleCountdownNumbers() {
+    setShowCountdownNumbers(v => {
+      const next = !v
+      try { localStorage.setItem('apnea-show-countdown-numbers', String(next)) } catch {}
+      return next
+    })
+  }
+
   // Construction une seule fois (mémoïsé)
   const { exercise, metadata, totalS } = useMemo(() => buildTableExercise(table), [table])
+
+  // La table contient-elle des phases décompte ?
+  const hasCountdown = useMemo(() => metadata.some(m => m.isCountdown), [metadata])
 
   // ── Arrêt propre ─────────────────────────────────────────────────────────────
   const stopSession = useCallback(() => {
@@ -387,25 +403,20 @@ export function TableRunner({ table, onDone }: Props) {
         </div>
       </div>
 
-      {/* Label de phase — hauteur fixe pour éviter tout saut de layout */}
-      <div className="px-4 pt-2 pb-1 text-center" style={{ minHeight: '64px' }}>
+      {/* Label de phase — hauteur FIXE, pas de description ici */}
+      <div className="px-4 text-center" style={{ height: '48px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
         <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: accentColor }}>
           {display.phaseLabel}
         </p>
         <p className="text-[11px] text-text-muted mt-0.5">{display.instruction}</p>
-        {display.description && (
-          <p className="text-sm text-text-secondary mt-2 px-6 text-center leading-snug">
-            {display.description}
-          </p>
-        )}
       </div>
 
       {/* Centre — BreathVisual toujours présent, décompte superposé en overlay */}
       <div className="flex-1 flex items-center justify-center">
         <div style={{ position: 'relative', width: 220, height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <BreathVisual />
-          {/* Overlay décompte : s'affiche par-dessus sans déplacer le layout */}
-          {display.isCountdown && display.countdownN !== undefined && display.countdownN >= 4 && (
+          {/* Overlay décompte : visible uniquement si showCountdownNumbers */}
+          {display.isCountdown && showCountdownNumbers && display.countdownN !== undefined && display.countdownN >= 4 && (
             <span style={{
               position: 'absolute', inset: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -419,32 +430,54 @@ export function TableRunner({ table, onDone }: Props) {
         </div>
       </div>
 
-      {/* Timer phase */}
-      <div className="text-center pb-4">
+      {/* Description — zone fixe sous le cercle, vide si pas de description */}
+      <div className="px-8 text-center" style={{ height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {display.description && (
+          <p className="text-sm text-text-secondary leading-snug line-clamp-2">
+            {display.description}
+          </p>
+        )}
+      </div>
+
+      {/* Timer phase — hauteur fixe */}
+      <div className="text-center" style={{ height: '64px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <span className="text-5xl font-thin font-mono tabular-nums text-text-primary">
           {fmtTime(display.phaseRemainingS)}
         </span>
       </div>
 
-      {/* Mini preview (CO2/O2 seulement) */}
-      {table.type !== 'custom' && table.rows.length > 0 && (
-        <div className="px-4 pb-4">
+      {/* Mini preview (CO2/O2) — hauteur fixe, invisible pour custom */}
+      <div className="px-4" style={{ height: '44px' }}>
+        {table.type !== 'custom' && table.rows.length > 0 && (
           <TableMiniPreview
             rows={table.rows}
             currentRowIndex={display.rowIndex}
             currentPhase={display.phase === 'hold' ? 'hold' : 'recovery'}
           />
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Contrôles */}
-      <div className="flex justify-center pb-8">
+      {/* Contrôles — pause + toggle décompte */}
+      <div className="flex items-center justify-center gap-4 pb-8">
         <button
           onClick={togglePause}
           className="h-14 w-14 rounded-full bg-bg-elevated border border-border flex items-center justify-center text-text-primary"
         >
           {paused ? <Play size={22} /> : <Pause size={22} />}
         </button>
+        {hasCountdown && (
+          <button
+            onClick={toggleCountdownNumbers}
+            title={showCountdownNumbers ? 'Masquer les chiffres du décompte' : 'Afficher les chiffres du décompte'}
+            className="h-10 w-10 rounded-full border border-border flex items-center justify-center transition-colors"
+            style={{
+              background: showCountdownNumbers ? 'var(--color-accent-dim)' : 'var(--color-bg-elevated)',
+              color: showCountdownNumbers ? 'var(--color-accent)' : 'var(--color-text-muted)',
+            }}
+          >
+            {showCountdownNumbers ? <Eye size={16} /> : <EyeOff size={16} />}
+          </button>
+        )}
       </div>
     </div>
   )

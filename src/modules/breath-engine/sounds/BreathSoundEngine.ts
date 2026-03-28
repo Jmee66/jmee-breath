@@ -67,7 +67,7 @@ const BOWL_HARMONICS = [
 // Pendant les phases recovery (≥ 10 s) : cycle 7 s montée + 14 s descente.
 // Appliquée via un GainNode dédié inséré entre globalLpf et masterGain.
 // Amplitude très discrète (0.88 → 1.0) pour suggérer sans imposer.
-const BREATH_MOD_MIN    = 0.88
+const BREATH_MOD_MIN    = 0.25   // ~12 dB en dessous du max — clairement perceptible
 const BREATH_MOD_MAX    = 1.0
 const BREATH_MOD_INHALE = 7    // secondes — montée
 const BREATH_MOD_EXHALE = 14   // secondes — descente

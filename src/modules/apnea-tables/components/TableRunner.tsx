@@ -37,6 +37,7 @@ interface SegmentMeta {
   accentColor: string
   isCountdown: boolean
   showNumbers: boolean         // countdown only — afficher les chiffres
+  voiceWord:   string | null   // mot prononcé par la voix (null = silence)
   phaseStartS: number          // cumul de toutes les phases précédentes (pour totalProgress)
 }
 
@@ -72,15 +73,15 @@ function buildTableExercise(table: ApneaTable): {
       const serie = `Série ${i + 1} / ${rows.length}`
       push(
         { type: 'inhale',   durationSeconds: INHALE_S,                               label: serie },
-        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Inspiration', instruction: serie, description: undefined, accentColor: '#1a85c2', isCountdown: false, showNumbers: true },
+        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Inspiration', instruction: serie, description: undefined, accentColor: '#1a85c2', isCountdown: false, showNumbers: true, voiceWord: 'Inspirez' },
       )
       push(
         { type: 'hold',     durationSeconds: row.holdS,                               label: `Rétention ${fmtTime(row.holdS)}` },
-        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Rétention',   instruction: serie, description: undefined, accentColor: '#7561af', isCountdown: false, showNumbers: true },
+        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Rétention',   instruction: serie, description: undefined, accentColor: '#7561af', isCountdown: false, showNumbers: true, voiceWord: 'Retenez' },
       )
       push(
         { type: 'recovery', durationSeconds: Math.max(2, row.recoveryS - INHALE_S),  label: 'Récupérez' },
-        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Récupération', instruction: 'Respirez librement', description: table.recoveryNote ?? undefined, accentColor: '#34d399', isCountdown: false, showNumbers: true },
+        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Récupération', instruction: 'Respirez librement', description: table.recoveryNote ?? undefined, accentColor: '#34d399', isCountdown: false, showNumbers: true, voiceWord: 'Récupérez' },
       )
     })
 
@@ -94,7 +95,7 @@ function buildTableExercise(table: ApneaTable): {
         const isCountdown = item.phaseType === 'countdown'
         push(
           { type: mapCustomType(item.phaseType), durationSeconds: item.durationS, label: cfg.label },
-          { rowIndex: 0, totalRows: 1, phaseLabel: cfg.label, instruction: cfg.label, description: item.description || undefined, accentColor: cfg.color, isCountdown, showNumbers: isCountdown ? (item.showNumbers !== false) : true },
+          { rowIndex: 0, totalRows: 1, phaseLabel: cfg.label, instruction: cfg.label, description: item.description || undefined, accentColor: cfg.color, isCountdown, showNumbers: isCountdown ? (item.showNumbers !== false) : true, voiceWord: cfg.voiceWord },
         )
       } else {
         for (let r = 0; r < item.repeatCount; r++) {
@@ -103,7 +104,7 @@ function buildTableExercise(table: ApneaTable): {
             const isCountdown = p.phaseType === 'countdown'
             push(
               { type: mapCustomType(p.phaseType), durationSeconds: p.durationS, label: cfg.label },
-              { rowIndex: r, totalRows: item.repeatCount, phaseLabel: cfg.label, instruction: `${item.label} ${r + 1} / ${item.repeatCount}`, description: p.description || undefined, accentColor: cfg.color, isCountdown, showNumbers: isCountdown ? (p.showNumbers !== false) : true },
+              { rowIndex: r, totalRows: item.repeatCount, phaseLabel: cfg.label, instruction: `${item.label} ${r + 1} / ${item.repeatCount}`, description: p.description || undefined, accentColor: cfg.color, isCountdown, showNumbers: isCountdown ? (p.showNumbers !== false) : true, voiceWord: cfg.voiceWord },
             )
           }
         }
@@ -250,8 +251,11 @@ export function TableRunner({ table, onDone }: Props) {
           const meta = metadata[phase.phaseIndex]
           if (!meta) return
 
-          // Voix : skip pour countdown (parole gérée dans onTick, numéro par numéro)
-          if (!meta.isCountdown) voice.speak(phase.internalType)
+          // Voix : utilise le voiceWord centralisé dans CUSTOM_PHASE_CONFIG
+          // ("Inspirez", "Ventilez", "Préparez-vous"…) plutôt que l'internalType
+          // mappé qui serait identique ('recovery') pour ventilation, prep, etc.
+          // null = silence (ex. countdown géré dans onTick).
+          if (meta.voiceWord) voice.speakText(meta.voiceWord)
 
           // Mise à jour atomique du BreathEngine → BreathCircle s'anime automatiquement
           breathStore.getState().setPhaseComplete(phase.publicType, phase.internalType, phase.durationSeconds)

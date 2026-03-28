@@ -210,15 +210,23 @@ export class BreathVoiceGuide {
 
   speak(phase: InternalPhaseType): void {
     if (!this.settings.enabled || !this.supported) return
-
-    // Phase de préparation : description complète de l'exercice
-    // Phases actives : mot unique
     const text = phase === 'preparation' && this.exercise
       ? buildPreparationText(this.exercise)
       : PHASE_WORD[phase]
-
     if (!text) return
+    this._sayText(text)
+  }
 
+  /**
+   * Prononce un texte libre — pour les phases custom dont le label
+   * ne correspond pas à un InternalPhaseType standard (ex. "Ventilation").
+   */
+  speakText(text: string): void {
+    if (!this.settings.enabled || !this.supported || !text) return
+    this._sayText(text)
+  }
+
+  private _sayText(text: string): void {
     try {
       const synth = window.speechSynthesis
 
@@ -233,7 +241,6 @@ export class BreathVoiceGuide {
 
       window.setTimeout(() => {
         try {
-          // Re-vérifier l'état : peut avoir changé pendant le délai
           if (synth.paused) synth.resume()
           const u  = new SpeechSynthesisUtterance(text)
           u.lang   = 'fr-FR'
@@ -244,9 +251,7 @@ export class BreathVoiceGuide {
           synth.speak(u)
         } catch { /* silencieux */ }
       }, 50)
-    } catch {
-      // speechSynthesis peut lever dans certains contextes restreints
-    }
+    } catch { /* silencieux */ }
   }
 
   setEnabled(enabled: boolean): void {

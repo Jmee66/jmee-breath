@@ -91,19 +91,21 @@ export function generateRows(
 // ── Phases custom par défaut ───────────────────────────────────────────────────
 
 export const CUSTOM_PHASE_CONFIG: Record<CustomPhaseType, {
-  label:      string
-  color:      string
-  defaultS:   number
+  label:       string
+  color:       string
+  defaultS:    number
   defaultDesc: string
   breathDriven: boolean   // true = BreathClock géré, false = timer + texte libre
+  /** Mot prononcé par la voix au début de la phase. null = silence (géré ailleurs). */
+  voiceWord:   string | null
 }> = {
-  prep:        { label: 'Préparation',  color: '#4a5568', defaultS: 30,  defaultDesc: 'Détends-toi, prépare-toi mentalement', breathDriven: false },
-  inhale:      { label: 'Inspiration',  color: '#1a85c2', defaultS: 6,   defaultDesc: 'Inspire lentement — ventre, côtes, thorax', breathDriven: true  },
-  hold:        { label: 'Rétention',    color: '#7561af', defaultS: 60,  defaultDesc: 'Rétention plein poumon, détends-toi', breathDriven: true  },
-  exhale:      { label: 'Expiration',   color: '#9d7ec4', defaultS: 6,   defaultDesc: 'Expire doucement — thorax, côtes, ventre', breathDriven: true  },
-  recovery:    { label: 'Récupération', color: '#34d399', defaultS: 120, defaultDesc: 'Respire librement, récupère', breathDriven: false },
-  ventilation: { label: 'Ventilation',  color: '#2dd4bf', defaultS: 30,  defaultDesc: 'Ventilation active, inspire profond', breathDriven: false },
-  countdown:   { label: 'Décompte',     color: '#f59e0b', defaultS: 10,  defaultDesc: 'Prêt… plonge !', breathDriven: false },
+  prep:        { label: 'Préparation',  color: '#4a5568', defaultS: 30,  defaultDesc: 'Détends-toi, prépare-toi mentalement', breathDriven: false, voiceWord: 'Préparez-vous' },
+  inhale:      { label: 'Inspiration',  color: '#1a85c2', defaultS: 6,   defaultDesc: 'Inspire lentement — ventre, côtes, thorax', breathDriven: true,  voiceWord: 'Inspirez'      },
+  hold:        { label: 'Rétention',    color: '#7561af', defaultS: 60,  defaultDesc: 'Rétention plein poumon, détends-toi', breathDriven: true,  voiceWord: 'Retenez'       },
+  exhale:      { label: 'Expiration',   color: '#9d7ec4', defaultS: 6,   defaultDesc: 'Expire doucement — thorax, côtes, ventre', breathDriven: true,  voiceWord: 'Expirez'       },
+  recovery:    { label: 'Récupération', color: '#34d399', defaultS: 120, defaultDesc: 'Respire librement, récupère', breathDriven: false, voiceWord: 'Récupérez'     },
+  ventilation: { label: 'Ventilation',  color: '#2dd4bf', defaultS: 30,  defaultDesc: 'Ventilation active, inspire profond', breathDriven: false, voiceWord: 'Ventilez'      },
+  countdown:   { label: 'Décompte',     color: '#f59e0b', defaultS: 10,  defaultDesc: 'Prêt… plonge !', breathDriven: false, voiceWord: null        }, // géré par onTick
 }
 
 /** Génère le template de phases par défaut pour une table custom. */

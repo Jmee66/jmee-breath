@@ -260,14 +260,15 @@ export function TableRunner({ table, onDone }: Props) {
           // null = silence (ex. countdown géré dans onTick).
           if (meta.voiceWord) voice.speakText(meta.voiceWord)
 
-          // Override durée respiration souffle pour recovery/ventilation
-          // Priorité : durées per-phase > réglages globaux du slider
+          // Souffle : actif uniquement sur recovery/ventilation
+          // · durées per-phase définies → setBreathOverride (override explicite)
+          // · durées per-phase absentes → setBreathPhaseActive (utilise sliders globaux live)
           if (meta.isBreathPhase) {
-            const ws = useWindStore.getState()
-            useWindStore.getState().setBreathOverride(
-              meta.breathInhaleS ?? ws.windBreathInhaleS,
-              meta.breathExhaleS ?? ws.windBreathExhaleS,
-            )
+            if (meta.breathInhaleS && meta.breathExhaleS) {
+              useWindStore.getState().setBreathOverride(meta.breathInhaleS, meta.breathExhaleS)
+            } else {
+              useWindStore.getState().setBreathPhaseActive()
+            }
           } else {
             useWindStore.getState().clearBreathOverride()
           }

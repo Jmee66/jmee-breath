@@ -5,14 +5,17 @@
  * Crée son propre AudioContext (distinct de BreathClock et de useRiverAmbience).
  *
  * Cycle de vie :
- *   · windEnabled = true + overrideActive = true  : démarre (phase ventilation/récupération)
- *   · overrideActive → false                      : fondu 150 ms (fin de phase)
- *   · windEnabled → false                         : fondu 150 ms immédiat
- *   · windVolume change                           : setVolume() live
- *   · override InhaleS/ExhaleS change             : setBreathSpeed() live
+ *   · windEnabled + windBreathPhaseActive → true : démarre le moteur
+ *   · windBreathPhaseActive → false              : fondu 150 ms (fin de phase)
+ *   · windEnabled → false                        : fondu 150 ms immédiat
+ *   · windVolume change                          : setVolume() live
+ *   · durées effectives change                   : setBreathSpeed() live
  *
- * Le son ne joue QUE pendant les phases recovery/ventilation où TableRunner
- * a positionné un override de durée. Silencieux hors session.
+ * Hiérarchie des durées :
+ *   overrideActive → overrideInhaleS/ExhaleS (per-phase explicite)
+ *   sinon          → windBreathInhaleS/ExhaleS (sliders globaux, réactifs)
+ *
+ * Le moteur est silencieux hors session (windBreathPhaseActive = false).
  */
 
 import { useEffect, useRef } from 'react'
@@ -27,16 +30,23 @@ const AudioCtx: typeof AudioContext =
 export function useWindAmbience(): void {
   const engineRef   = useRef<BreathWindEngine | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
-  const activeRef   = useRef(false)   // true quand le moteur est en cours de lecture
+  const activeRef   = useRef(false)
 
-  const windEnabled     = useWindStore((s) => s.windEnabled)
-  const windVolume      = useWindStore((s) => s.windVolume)
-  const overrideActive  = useWindStore((s) => s.windBreathOverrideActive)
-  const overrideInhaleS = useWindStore((s) => s.windBreathOverrideInhaleS)
-  const overrideExhaleS = useWindStore((s) => s.windBreathOverrideExhaleS)
+  const windEnabled      = useWindStore((s) => s.windEnabled)
+  const windVolume       = useWindStore((s) => s.windVolume)
+  const windInhaleS      = useWindStore((s) => s.windBreathInhaleS)
+  const windExhaleS      = useWindStore((s) => s.windBreathExhaleS)
+  const phaseActive      = useWindStore((s) => s.windBreathPhaseActive)
+  const overrideActive   = useWindStore((s) => s.windBreathOverrideActive)
+  const overrideInhaleS  = useWindStore((s) => s.windBreathOverrideInhaleS)
+  const overrideExhaleS  = useWindStore((s) => s.windBreathOverrideExhaleS)
 
-  // Le moteur tourne uniquement si l'utilisateur a activé le son ET qu'une phase l'exige
-  const shouldPlay = windEnabled && overrideActive
+  // Durées effectives : per-phase > réglages globaux (live)
+  const effectiveInhaleS = overrideActive ? overrideInhaleS : windInhaleS
+  const effectiveExhaleS = overrideActive ? overrideExhaleS : windExhaleS
+
+  // Moteur actif uniquement pendant les phases recovery/ventilation
+  const shouldPlay = windEnabled && phaseActive
 
   activeRef.current = shouldPlay
 
@@ -45,12 +55,12 @@ export function useWindAmbience(): void {
     engineRef.current?.setVolume(windVolume)
   }, [windVolume])
 
-  // ── Vitesse live (durées d'override) ──────────────────────────────────
+  // ── Durées live (réglages globaux OU override per-phase) ──────────────
   useEffect(() => {
     if (shouldPlay) {
-      engineRef.current?.setBreathSpeed(overrideInhaleS, overrideExhaleS)
+      engineRef.current?.setBreathSpeed(effectiveInhaleS, effectiveExhaleS)
     }
-  }, [shouldPlay, overrideInhaleS, overrideExhaleS])
+  }, [shouldPlay, effectiveInhaleS, effectiveExhaleS])
 
   // ── Start / Stop ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -61,15 +71,15 @@ export function useWindAmbience(): void {
         engineRef.current   = new BreathWindEngine(audioCtxRef.current, {
           enabled:       true,
           volume:        windVolume,
-          breathInhaleS: overrideInhaleS,
-          breathExhaleS: overrideExhaleS,
+          breathInhaleS: effectiveInhaleS,
+          breathExhaleS: effectiveExhaleS,
         })
       }
 
       const ctx    = audioCtxRef.current!
       const engine = engineRef.current!
 
-      const doStart = () => engine.start(overrideInhaleS, overrideExhaleS)
+      const doStart = () => engine.start(effectiveInhaleS, effectiveExhaleS)
 
       if (ctx.state === 'suspended') {
         void ctx.resume().then(doStart)
@@ -80,14 +90,16 @@ export function useWindAmbience(): void {
       // Reprise après interruption iOS
       ctx.onstatechange = () => {
         const s = useWindStore.getState()
-        if (ctx.state === 'running' && s.windEnabled && s.windBreathOverrideActive && engineRef.current?.isActive === false) {
-          engineRef.current?.start(s.windBreathOverrideInhaleS, s.windBreathOverrideExhaleS)
+        if (ctx.state === 'running' && s.windEnabled && s.windBreathPhaseActive && engineRef.current?.isActive === false) {
+          const inh = s.windBreathOverrideActive ? s.windBreathOverrideInhaleS : s.windBreathInhaleS
+          const exh = s.windBreathOverrideActive ? s.windBreathOverrideExhaleS : s.windBreathExhaleS
+          engineRef.current?.start(inh, exh)
         }
       }
     } else {
       engineRef.current?.stop()
     }
-    // overrideInhaleS/ExhaleS exclus — gérés par l'effet vitesse séparé
+    // effectiveInhaleS/ExhaleS exclus — gérés par l'effet durées séparé
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldPlay])
 

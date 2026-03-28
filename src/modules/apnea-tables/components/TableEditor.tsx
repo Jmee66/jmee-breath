@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ArrowLeft, Wand2, Sliders, RefreshCw, X, ChevronDown, ChevronUp, Copy, Plus, Layers } from 'lucide-react'
+import { ArrowLeft, Wand2, Sliders, RefreshCw, X, ChevronDown, ChevronUp, Copy, Plus, Layers, Clipboard, ClipboardCheck } from 'lucide-react'
 import type { ApneaTable, TableType, RecoveryPattern, TableRow, CustomPhaseType, CustomItem, CustomPhaseItem, CustomGroupItem } from '../types'
 import {
   generateRows, totalTableDuration, fmtTime,
@@ -492,8 +492,23 @@ function PhaseItemCard({
   onMoveDown: () => void
   onCopy:     () => void
 }) {
-  const [descOpen, setDescOpen] = useState(false)
+  const [descOpen,  setDescOpen]  = useState(false)
+  const [copied,    setCopied]    = useState(false)
   const cfg = CUSTOM_PHASE_CONFIG[item.phaseType]
+
+  function copyDuration() {
+    void navigator.clipboard.writeText(String(item.durationS))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  /** Formate en "Xs" ou "Xm Ys" pour l'affichage, avec précision 0.5s */
+  function fmtDur(s: number) {
+    if (s < 60) return `${s} s`
+    const m = Math.floor(s / 60)
+    const rem = Math.round((s % 60) * 2) / 2
+    return rem === 0 ? `${m} min` : `${m}m ${rem}s`
+  }
 
   return (
     <div className="rounded-xl bg-bg-elevated border border-border overflow-hidden">
@@ -547,17 +562,41 @@ function PhaseItemCard({
       {/* Durée */}
       <div className="flex items-center gap-2 px-3 pb-3 border-t border-border/40 pt-2.5">
         <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: cfg.color }} />
-        <span className="text-xs font-semibold flex-1" style={{ color: cfg.color }}>{cfg.label}</span>
-        <button onClick={() => onChange({ ...item, durationS: Math.max(1, item.durationS - 5) })}
-          className="h-7 w-7 rounded-lg bg-bg-overlay text-white/60 font-bold text-xs flex items-center justify-center">−</button>
-        <input
-          type="number" min={1} max={3600} value={item.durationS}
-          onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0) onChange({ ...item, durationS: v }) }}
-          className="w-14 text-center text-sm font-mono bg-transparent text-text-primary outline-none border-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
-        />
-        <span className="text-xs text-white/40">s</span>
-        <button onClick={() => onChange({ ...item, durationS: item.durationS + 5 })}
-          className="h-7 w-7 rounded-lg bg-bg-overlay text-white/60 font-bold text-xs flex items-center justify-center">+</button>
+        <span className="text-xs font-semibold" style={{ color: cfg.color }}>{cfg.label}</span>
+
+        {/* Stepper ± 0.5 s */}
+        <div className="flex items-center gap-1 ml-auto">
+          <button
+            onClick={() => onChange({ ...item, durationS: Math.max(0.5, Math.round((item.durationS - 0.5) * 2) / 2) })}
+            className="h-7 w-7 rounded-lg bg-bg-overlay text-white/60 font-bold text-xs flex items-center justify-center select-none"
+          >−</button>
+          <input
+            type="number" min={0.5} max={3600} step={0.5}
+            value={item.durationS}
+            onChange={(e) => {
+              const v = parseFloat(e.target.value)
+              if (!isNaN(v) && v >= 0.5) onChange({ ...item, durationS: Math.round(v * 2) / 2 })
+            }}
+            className="w-16 text-center text-sm font-mono bg-transparent text-text-primary outline-none border-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+          />
+          <span className="text-xs text-white/40 -ml-1">s</span>
+          <button
+            onClick={() => onChange({ ...item, durationS: Math.round((item.durationS + 0.5) * 2) / 2 })}
+            className="h-7 w-7 rounded-lg bg-bg-overlay text-white/60 font-bold text-xs flex items-center justify-center select-none"
+          >+</button>
+
+          {/* Copier durée */}
+          <button
+            onClick={copyDuration}
+            title="Copier la durée"
+            className={`p-1.5 rounded-lg transition-colors ${copied ? 'text-green-400' : 'text-white/30 hover:text-white/60'}`}
+          >
+            {copied ? <ClipboardCheck size={13} /> : <Clipboard size={13} />}
+          </button>
+        </div>
+
+        {/* Affichage lisible */}
+        <span className="text-xs text-white/30 w-14 text-right shrink-0">{fmtDur(item.durationS)}</span>
       </div>
 
       {/* Description */}

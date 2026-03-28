@@ -18,6 +18,7 @@ import { BreathVoiceGuide, estimatePreparationDuration } from '@modules/breath-e
 import { BreathVisual }                   from '@modules/breath-engine'
 import { useBreathStore }                 from '@modules/breath-engine'
 import { useSoundStore, useDroneStore, useVoiceGuideStore } from '@modules/breath-engine'
+import { useWindStore }                  from '@modules/breath-engine/sounds/windStore'
 
 // ── Conversion ApneaTable → Exercise ─────────────────────────────────────────
 //
@@ -37,8 +38,11 @@ interface SegmentMeta {
   accentColor: string
   isCountdown: boolean
   showNumbers: boolean         // countdown only — afficher les chiffres
-  voiceWord:   string | null   // mot prononcé par la voix (null = silence)
-  phaseStartS: number          // cumul de toutes les phases précédentes (pour totalProgress)
+  voiceWord:     string | null   // mot prononcé par la voix (null = silence)
+  phaseStartS:   number          // cumul de toutes les phases précédentes (pour totalProgress)
+  isBreathPhase: boolean         // true pour recovery/ventilation → active le souffle
+  breathInhaleS?: number         // per-phase override inspir (s) — fallback vers réglages globaux
+  breathExhaleS?: number         // per-phase override expir (s) — fallback vers réglages globaux
 }
 
 /** Mappe un CustomPhaseType vers le PhaseType du BreathEngine. */
@@ -73,15 +77,15 @@ function buildTableExercise(table: ApneaTable): {
       const serie = `Série ${i + 1} / ${rows.length}`
       push(
         { type: 'inhale',   durationSeconds: INHALE_S,                               label: serie },
-        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Inspiration', instruction: serie, description: undefined, accentColor: '#1a85c2', isCountdown: false, showNumbers: true, voiceWord: 'Inspirez' },
+        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Inspiration', instruction: serie, description: undefined, accentColor: '#1a85c2', isCountdown: false, showNumbers: true, voiceWord: 'Inspirez', isBreathPhase: false },
       )
       push(
         { type: 'hold',     durationSeconds: row.holdS,                               label: `Rétention ${fmtTime(row.holdS)}` },
-        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Rétention',   instruction: serie, description: undefined, accentColor: '#7561af', isCountdown: false, showNumbers: true, voiceWord: 'Retenez' },
+        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Rétention',   instruction: serie, description: undefined, accentColor: '#7561af', isCountdown: false, showNumbers: true, voiceWord: 'Retenez', isBreathPhase: false },
       )
       push(
         { type: 'recovery', durationSeconds: Math.max(2, row.recoveryS - INHALE_S),  label: 'Récupérez' },
-        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Récupération', instruction: 'Respirez librement', description: table.recoveryNote ?? undefined, accentColor: '#34d399', isCountdown: false, showNumbers: true, voiceWord: 'Récupérez' },
+        { rowIndex: i, totalRows: rows.length, phaseLabel: 'Récupération', instruction: 'Respirez librement', description: table.recoveryNote ?? undefined, accentColor: '#34d399', isCountdown: false, showNumbers: true, voiceWord: 'Récupérez', isBreathPhase: true },
       )
     })
 
@@ -93,18 +97,20 @@ function buildTableExercise(table: ApneaTable): {
       if (item.kind === 'phase') {
         const cfg = CUSTOM_PHASE_CONFIG[item.phaseType]
         const isCountdown = item.phaseType === 'countdown'
+        const hasBreath = item.phaseType === 'recovery' || item.phaseType === 'ventilation'
         push(
           { type: mapCustomType(item.phaseType), durationSeconds: item.durationS, label: cfg.label },
-          { rowIndex: 0, totalRows: 1, phaseLabel: cfg.label, instruction: cfg.label, description: item.description || undefined, accentColor: cfg.color, isCountdown, showNumbers: isCountdown ? (item.showNumbers !== false) : true, voiceWord: cfg.voiceWord },
+          { rowIndex: 0, totalRows: 1, phaseLabel: cfg.label, instruction: cfg.label, description: item.description || undefined, accentColor: cfg.color, isCountdown, showNumbers: isCountdown ? (item.showNumbers !== false) : true, voiceWord: cfg.voiceWord, isBreathPhase: hasBreath, breathInhaleS: hasBreath ? item.breathInhaleS : undefined, breathExhaleS: hasBreath ? item.breathExhaleS : undefined },
         )
       } else {
         for (let r = 0; r < item.repeatCount; r++) {
           for (const p of item.items) {
             const cfg = CUSTOM_PHASE_CONFIG[p.phaseType]
             const isCountdown = p.phaseType === 'countdown'
+            const hasBreath = p.phaseType === 'recovery' || p.phaseType === 'ventilation'
             push(
               { type: mapCustomType(p.phaseType), durationSeconds: p.durationS, label: cfg.label },
-              { rowIndex: r, totalRows: item.repeatCount, phaseLabel: cfg.label, instruction: `${item.label} ${r + 1} / ${item.repeatCount}`, description: p.description || undefined, accentColor: cfg.color, isCountdown, showNumbers: isCountdown ? (p.showNumbers !== false) : true, voiceWord: cfg.voiceWord },
+              { rowIndex: r, totalRows: item.repeatCount, phaseLabel: cfg.label, instruction: `${item.label} ${r + 1} / ${item.repeatCount}`, description: p.description || undefined, accentColor: cfg.color, isCountdown, showNumbers: isCountdown ? (p.showNumbers !== false) : true, voiceWord: cfg.voiceWord, isBreathPhase: hasBreath, breathInhaleS: hasBreath ? p.breathInhaleS : undefined, breathExhaleS: hasBreath ? p.breathExhaleS : undefined },
             )
           }
         }
@@ -175,10 +181,17 @@ export function TableRunner({ table, onDone }: Props) {
   const [paused,  setPaused]  = useState(false)
   const [started, setStarted] = useState(false)
 
-
   // Construction une seule fois (mémoïsé)
   const { exercise, metadata, totalS } = useMemo(() => buildTableExercise(table), [table])
 
+  // ── Réactivité volume / enabled — mis à jour en live pendant la session ───────
+  const soundEnabled = useSoundStore((s) => s.soundEnabled)
+  const soundVolume  = useSoundStore((s) => s.soundVolume)
+  const droneEnabled = useDroneStore((s) => s.droneEnabled)
+  const droneVolume  = useDroneStore((s) => s.droneVolume)
+
+  useEffect(() => { clockRef.current?.setSoundEnabled(soundEnabled, soundVolume) }, [soundEnabled, soundVolume])
+  useEffect(() => { clockRef.current?.setDroneEnabled(droneEnabled, droneVolume) }, [droneEnabled, droneVolume])
 
   // ── Arrêt propre ─────────────────────────────────────────────────────────────
   const stopSession = useCallback(() => {
@@ -187,6 +200,7 @@ export function TableRunner({ table, onDone }: Props) {
     clockRef.current?.stop()
     clockRef.current = null
     breathStore.getState().endSession()
+    useWindStore.getState().clearBreathOverride()
   }, [breathStore])
 
   useEffect(() => {
@@ -245,6 +259,18 @@ export function TableRunner({ table, onDone }: Props) {
           // mappé qui serait identique ('recovery') pour ventilation, prep, etc.
           // null = silence (ex. countdown géré dans onTick).
           if (meta.voiceWord) voice.speakText(meta.voiceWord)
+
+          // Override durée respiration souffle pour recovery/ventilation
+          // Priorité : durées per-phase > réglages globaux du slider
+          if (meta.isBreathPhase) {
+            const ws = useWindStore.getState()
+            useWindStore.getState().setBreathOverride(
+              meta.breathInhaleS ?? ws.windBreathInhaleS,
+              meta.breathExhaleS ?? ws.windBreathExhaleS,
+            )
+          } else {
+            useWindStore.getState().clearBreathOverride()
+          }
 
           // Mise à jour atomique du BreathEngine → BreathCircle s'anime automatiquement
           breathStore.getState().setPhaseComplete(phase.publicType, phase.internalType, phase.durationSeconds)

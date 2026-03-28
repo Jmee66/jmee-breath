@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Volume2, VolumeX } from 'lucide-react'
 import { useSoundStore }      from '@modules/breath-engine/sounds/soundStore'
 import { useRiverStore }      from '@modules/breath-engine/sounds/riverStore'
+import { useWindStore }       from '@modules/breath-engine/sounds/windStore'
 import { useVoiceGuideStore } from '@modules/breath-engine/voice/voiceGuideStore'
 
 // ── Ligne toggle + slider ─────────────────────────────────────────────────────
@@ -44,6 +45,63 @@ function SoundRow({ label, enabled, volume, onToggle, onVolume }: {
   )
 }
 
+// ── Ligne durée (secondes) ────────────────────────────────────────────────────
+
+function DurationRow({ label, value, onChange, min, max }: {
+  label: string; value: number; onChange: (v: number) => void; min: number; max: number
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', width: '38px', flexShrink: 0 }}>
+        {label}
+      </span>
+      <input
+        type="range" min={min} max={max} step={1} value={value}
+        onChange={(e) => onChange(parseInt(e.target.value))}
+        style={{ flex: 1, accentColor: 'var(--color-accent)', cursor: 'pointer' }}
+      />
+      <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', width: '28px', textAlign: 'right', flexShrink: 0 }}>
+        {value}s
+      </span>
+    </div>
+  )
+}
+
+// ── Panneau souffle (volume + vitesse de respiration) ─────────────────────────
+
+function WindPanel() {
+  const windEnabled       = useWindStore((s) => s.windEnabled)
+  const windVolume        = useWindStore((s) => s.windVolume)
+  const windBreathInhaleS = useWindStore((s) => s.windBreathInhaleS)
+  const windBreathExhaleS = useWindStore((s) => s.windBreathExhaleS)
+  const setWindEnabled       = useWindStore((s) => s.setWindEnabled)
+  const setWindVolume        = useWindStore((s) => s.setWindVolume)
+  const setWindBreathInhaleS = useWindStore((s) => s.setWindBreathInhaleS)
+  const setWindBreathExhaleS = useWindStore((s) => s.setWindBreathExhaleS)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      <SoundRow
+        label="Souffle"
+        enabled={windEnabled}
+        volume={windVolume}
+        onToggle={() => setWindEnabled(!windEnabled)}
+        onVolume={setWindVolume}
+      />
+      {windEnabled && (
+        <div style={{
+          paddingLeft: '10px',
+          borderLeft: '2px solid var(--color-border)',
+          display: 'flex', flexDirection: 'column', gap: '6px',
+        }}>
+          <DurationRow label="Inspir" value={windBreathInhaleS} onChange={setWindBreathInhaleS} min={2} max={20} />
+          <DurationRow label="Expir"  value={windBreathExhaleS} onChange={setWindBreathExhaleS} min={2} max={30} />
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Bouton son global ─────────────────────────────────────────────────────────
 
 /**
@@ -64,17 +122,19 @@ export function GlobalSoundButton({ variant = 'floating' }: { variant?: 'floatin
   const setRiverEnabled = useRiverStore((s) => s.setRiverEnabled)
   const setRiverVolume  = useRiverStore((s) => s.setRiverVolume)
 
+  const windEnabled     = useWindStore((s) => s.windEnabled)
+
   const voiceEnabled    = useVoiceGuideStore((s) => s.voiceEnabled)
   const voiceVolume     = useVoiceGuideStore((s) => s.voiceVolume)
   const setVoiceEnabled = useVoiceGuideStore((s) => s.setVoiceEnabled)
   const setVoiceVolume  = useVoiceGuideStore((s) => s.setVoiceVolume)
 
-  const anyEnabled = soundEnabled || riverEnabled || voiceEnabled
+  const anyEnabled = soundEnabled || riverEnabled || windEnabled || voiceEnabled
 
   // ── Rendu mobile (floating) ──────────────────────────────────────────────────
   if (variant === 'floating') {
-    const TOP    = 'calc(env(safe-area-inset-top, 0px) + 12px)'
-    const RIGHT  = '16px'
+    const TOP      = 'calc(env(safe-area-inset-top, 0px) + 12px)'
+    const RIGHT    = '16px'
     const PANEL_TOP = 'calc(env(safe-area-inset-top, 0px) + 56px)'   // bouton 36px + 8px gap
 
     return (
@@ -126,6 +186,7 @@ export function GlobalSoundButton({ variant = 'floating' }: { variant?: 'floatin
             }}>
               <SoundRow label="Sons"    enabled={soundEnabled} volume={soundVolume} onToggle={() => setSoundEnabled(!soundEnabled)} onVolume={setSoundVolume} />
               <SoundRow label="Rivière" enabled={riverEnabled} volume={riverVolume} onToggle={() => setRiverEnabled(!riverEnabled)} onVolume={setRiverVolume} />
+              <WindPanel />
               <SoundRow label="Voix"    enabled={voiceEnabled} volume={voiceVolume} onToggle={() => setVoiceEnabled(!voiceEnabled)} onVolume={setVoiceVolume} />
             </div>
           </>
@@ -165,7 +226,7 @@ export function GlobalSoundButton({ variant = 'floating' }: { variant?: 'floatin
             bottom: '44px',
             left: 0,
             zIndex: 50,
-            width: '210px',
+            width: '220px',
             background: 'var(--color-bg-surface)',
             border: '1px solid var(--color-border)',
             borderRadius: '14px',
@@ -175,6 +236,7 @@ export function GlobalSoundButton({ variant = 'floating' }: { variant?: 'floatin
           }}>
             <SoundRow label="Sons"    enabled={soundEnabled} volume={soundVolume} onToggle={() => setSoundEnabled(!soundEnabled)} onVolume={setSoundVolume} />
             <SoundRow label="Rivière" enabled={riverEnabled} volume={riverVolume} onToggle={() => setRiverEnabled(!riverEnabled)} onVolume={setRiverVolume} />
+            <WindPanel />
             <SoundRow label="Voix"    enabled={voiceEnabled} volume={voiceVolume} onToggle={() => setVoiceEnabled(!voiceEnabled)} onVolume={setVoiceVolume} />
           </div>
         </>

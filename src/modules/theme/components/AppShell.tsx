@@ -2,7 +2,7 @@ import { Outlet } from 'react-router-dom'
 import { BottomNav } from './BottomNav'
 import { SideNav } from './SideNav'
 import { GlobalSoundButton } from './GlobalSoundButton'
-import { useRiverAmbience } from '@modules/breath-engine'
+import { useRiverAmbience, useWindAmbience } from '@modules/breath-engine'
 import { useSyncInit, usePreferencesSync } from '@core/sync'
 
 /**
@@ -12,6 +12,7 @@ import { useSyncInit, usePreferencesSync } from '@core/sync'
  */
 export function AppShell() {
   useRiverAmbience()       // lecteur rivière global — actif hors session
+  useWindAmbience()        // souffle synthétisé global — actif hors session
   useSyncInit()            // auth listener → syncManager.setUserId()
   usePreferencesSync()     // push/pull préférences ↔ Supabase
 

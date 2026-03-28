@@ -4,6 +4,10 @@
  * Charge le fichier public/sounds/river.wav via fetch + decodeAudioData,
  * le joue en boucle avec fade in/out.
  *
+ * Chaîne de signal :
+ *   source → masterGain → destination
+ *   · masterGain : volume maître + fade in/out
+ *
  * Optimisations :
  *  · Cache module-level : le buffer décodé est réutilisé entre les instances
  *    (un seul fetch + decode pour toute la durée de vie de l'app)
@@ -17,8 +21,8 @@
 import type { RiverSettings } from './riverTypes'
 
 // ── Cache module — partagé entre toutes les instances ─────────────────────────
-let _riverBuffer:   AudioBuffer | null = null
-let _loadPromise:   Promise<AudioBuffer> | null = null
+let _riverBuffer:  AudioBuffer | null = null
+let _loadPromise:  Promise<AudioBuffer> | null = null
 
 async function getRiverBuffer(audioCtx: AudioContext, url: string): Promise<AudioBuffer> {
   if (_riverBuffer) return _riverBuffer
@@ -42,18 +46,21 @@ async function getRiverBuffer(audioCtx: AudioContext, url: string): Promise<Audi
 
 export class BreathRiverEngine {
   private readonly masterGain: GainNode
-  private source:        AudioBufferSourceNode | null = null
-  private running        = false
-  private targetVolume:  number
-  private loadId         = 0   // Annule les chargements obsolètes
+  private source:       AudioBufferSourceNode | null = null
+  private running       = false
+  private targetVolume: number
+  private loadId        = 0   // Annule les chargements obsolètes
 
   constructor(
     private readonly audioCtx: AudioContext,
     settings: RiverSettings,
   ) {
-    this.targetVolume          = settings.volume
+    this.targetVolume = settings.volume
+
+    // Chaîne : source → masterGain → destination
     this.masterGain            = audioCtx.createGain()
     this.masterGain.gain.value = 0   // fade in géré par loadAndStart()
+
     this.masterGain.connect(audioCtx.destination)
   }
 
@@ -76,10 +83,10 @@ export class BreathRiverEngine {
     // Annulé pendant le chargement (stop() appelé entre-temps)
     if (id !== this.loadId) return
 
-    this.running        = true
-    this.source         = this.audioCtx.createBufferSource()
-    this.source.buffer  = buffer
-    this.source.loop    = true
+    this.running       = true
+    this.source        = this.audioCtx.createBufferSource()
+    this.source.buffer = buffer
+    this.source.loop   = true
     this.source.connect(this.masterGain)
 
     // Détecte un arrêt inopiné (interruption iOS — notification, appel…)
@@ -107,8 +114,7 @@ export class BreathRiverEngine {
     if (!this.running) return
     this.running = false
 
-    const ctx    = this.audioCtx
-    const now    = ctx.currentTime
+    const now    = this.audioCtx.currentTime
     const stopAt = now + 1.5
 
     // Fade out 1.5 s

@@ -764,13 +764,49 @@ function PhaseItemCard({
         </div>
       )}
 
-      {/* Description */}
+      {/* Description + options avancées */}
       {descOpen && (
-        <div className="px-3 pb-3">
+        <div className="px-3 pb-3 space-y-2.5">
           <textarea rows={2} value={item.description}
             onChange={(e) => onChange({ ...item, description: e.target.value })}
             placeholder="Instruction affichée pendant cette phase…"
             className="w-full bg-bg-overlay rounded-lg px-3 py-2 text-xs text-text-primary placeholder:text-white/20 outline-none resize-none border border-border focus:border-accent" />
+
+          {/* Respiration souffle — uniquement pour recovery et ventilation */}
+          {(item.phaseType === 'recovery' || item.phaseType === 'ventilation') && (
+            <div className="rounded-lg bg-bg-overlay border border-border/60 px-3 py-2.5 space-y-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                Respiration souffle
+              </p>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-text-muted w-10 shrink-0">Inspir</span>
+                <input
+                  type="range" min={2} max={20} step={1}
+                  value={item.breathInhaleS ?? 4}
+                  onChange={(e) => onChange({ ...item, breathInhaleS: parseInt(e.target.value) })}
+                  className="flex-1 accent-accent"
+                />
+                <span className="text-[11px] text-text-muted w-7 text-right shrink-0">
+                  {item.breathInhaleS ?? '—'}s
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-text-muted w-10 shrink-0">Expir</span>
+                <input
+                  type="range" min={2} max={30} step={1}
+                  value={item.breathExhaleS ?? 8}
+                  onChange={(e) => onChange({ ...item, breathExhaleS: parseInt(e.target.value) })}
+                  className="flex-1 accent-accent"
+                />
+                <span className="text-[11px] text-text-muted w-7 text-right shrink-0">
+                  {item.breathExhaleS ?? '—'}s
+                </span>
+              </div>
+              <p className="text-[10px] text-text-muted/60">
+                Surcharge les réglages globaux pendant cette phase
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>

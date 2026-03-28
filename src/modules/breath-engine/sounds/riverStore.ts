@@ -24,6 +24,12 @@ export const useRiverStore = create<RiverState>()(
       setRiverEnabled: (riverEnabled) => set({ riverEnabled }),
       setRiverVolume:  (riverVolume)  => set({ riverVolume }),
     }),
-    { name: 'breath-river-settings' },
+    {
+      name: 'breath-river-settings',
+      partialize: (s) => ({
+        riverEnabled: s.riverEnabled,
+        riverVolume:  s.riverVolume,
+      }),
+    },
   ),
 )

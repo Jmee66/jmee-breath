@@ -46,9 +46,9 @@ export interface CustomPhaseItem {
   description: string
   /** Countdown only — afficher les chiffres pendant le décompte (défaut : true) */
   showNumbers?: boolean
-  /** Recovery/Ventilation — override durée inspiration rivière (s). Null = utilise les réglages globaux. */
+  /** Recovery/Ventilation — override durée inspiration souffle (s). Absent = réglages globaux. */
   breathInhaleS?: number
-  /** Recovery/Ventilation — override durée expiration rivière (s). Null = utilise les réglages globaux. */
+  /** Recovery/Ventilation — override durée expiration souffle (s). Absent = réglages globaux. */
   breathExhaleS?: number
 }
 

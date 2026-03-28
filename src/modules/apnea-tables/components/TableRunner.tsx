@@ -41,8 +41,8 @@ interface SegmentMeta {
   voiceWord:     string | null   // mot prononcé par la voix (null = silence)
   phaseStartS:   number          // cumul de toutes les phases précédentes (pour totalProgress)
   isBreathPhase: boolean         // true pour recovery/ventilation → active le souffle
-  breathInhaleS?: number         // per-phase override inspir (s) — fallback vers réglages globaux
-  breathExhaleS?: number         // per-phase override expir (s) — fallback vers réglages globaux
+  breathInhaleS?: number         // per-phase override inspir souffle (s) — absent = réglages globaux
+  breathExhaleS?: number         // per-phase override expir souffle (s) — absent = réglages globaux
 }
 
 /** Mappe un CustomPhaseType vers le PhaseType du BreathEngine. */
@@ -264,7 +264,7 @@ export function TableRunner({ table, onDone }: Props) {
           // · durées per-phase définies → setBreathOverride (override explicite)
           // · durées per-phase absentes → setBreathPhaseActive (utilise sliders globaux live)
           if (meta.isBreathPhase) {
-            if (meta.breathInhaleS && meta.breathExhaleS) {
+            if (meta.breathInhaleS != null && meta.breathExhaleS != null) {
               useWindStore.getState().setBreathOverride(meta.breathInhaleS, meta.breathExhaleS)
             } else {
               useWindStore.getState().setBreathPhaseActive()

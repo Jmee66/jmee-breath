@@ -18,6 +18,7 @@ function toSupabasePayload(t: ApneaTable, userId: string): Record<string, unknow
     custom_phases:        t.customPhases        ?? null,
     custom_series_count:  t.customSeriesCount   ?? null,
     recovery_note:        t.recoveryNote        ?? null,
+    category:             t.category            ?? null,
     created_at:           t.createdAt,
     updated_at:           t.updatedAt,
   }

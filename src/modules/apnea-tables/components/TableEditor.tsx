@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { ArrowLeft, Wand2, Sliders, RefreshCw, X, ChevronDown, ChevronUp, Copy, Plus, Layers, Clipboard, ClipboardCheck, ArrowUpFromLine } from 'lucide-react'
-import type { ApneaTable, TableType, RecoveryPattern, TableRow, CustomPhaseType, CustomItem, CustomPhaseItem, CustomGroupItem } from '../types'
+import type { ApneaTable, TableType, RecoveryPattern, TableRow, CustomPhaseType, CustomItem, CustomPhaseItem, CustomGroupItem, ExerciseCategory } from '../types'
 import {
   generateRows, totalTableDuration, fmtTime,
   getPersonalBest, CUSTOM_PHASE_CONFIG,
@@ -13,6 +13,16 @@ const TYPE_OPTIONS: { value: TableType; label: string; desc: string }[] = [
   { value: 'co2',    label: 'CO₂',    desc: 'Hold fixe · récup décroissante · tolérance CO₂' },
   { value: 'o2',     label: 'O₂',     desc: 'Hold croissant · récup fixe · capacité' },
   { value: 'custom', label: 'Custom', desc: 'Table libre — définis chaque phase toi-même' },
+]
+
+const CATEGORY_OPTIONS: { value: ExerciseCategory; label: string }[] = [
+  { value: 'apnea',         label: 'Apnée' },
+  { value: 'breathing',     label: 'Respiration' },
+  { value: 'preparation',   label: 'Préparation' },
+  { value: 'meditation',    label: 'Méditation' },
+  { value: 'visualization', label: 'Visualisation' },
+  { value: 'panic',         label: 'Panique' },
+  { value: 'custom',        label: 'Personnalisé' },
 ]
 
 
@@ -49,6 +59,9 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
   })
   const [recoveryNote,    setRecoveryNote]    = useState(
     initialTable?.recoveryNote ?? 'Respire librement, récupère.',
+  )
+  const [category, setCategory] = useState<ExerciseCategory>(
+    initialTable?.category ?? 'apnea',
   )
 
   // ── Personal Best ───────────────────────────────────────────────────────────
@@ -103,6 +116,7 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
         seriesCount,
         recoveryPattern,
         formeFactor,
+        category,
         customProgram: type === 'custom' ? program : undefined,
         recoveryNote:  type !== 'custom' ? recoveryNote : undefined,
       })
@@ -174,6 +188,20 @@ export function TableEditor({ initialTable, onSave, onCancel }: Props) {
           <p className="text-xs text-text-muted pl-1">
             {TYPE_OPTIONS.find((t) => t.value === type)?.desc}
           </p>
+        </div>
+
+        {/* Famille / Catégorie */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wide text-text-muted">Famille</label>
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value as ExerciseCategory)}
+            className="w-full rounded-xl bg-bg-elevated border border-border px-3 py-2.5 text-sm text-text-primary outline-none focus:border-accent appearance-none"
+          >
+            {CATEGORY_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
         </div>
 
         {/* Éditeur custom */}

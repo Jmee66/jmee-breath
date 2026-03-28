@@ -66,6 +66,18 @@ const CUSTOM_PHASE_LABELS: Record<string, string> = {
   exhale:      'Expiration',
   recovery:    'Récupération',
   ventilation: 'Ventilation',
+  countdown:   'Décompte',
+}
+
+/** Synthèse vocale d'un chiffre (10→4) pendant le décompte. */
+function speakCountdownNumber(n: number, volume: number, rate: number): void {
+  if (!window.speechSynthesis) return
+  window.speechSynthesis.cancel()
+  const utt = new SpeechSynthesisUtterance(String(n))
+  utt.rate   = Math.max(0.5, rate * 1.1)
+  utt.volume = volume
+  utt.lang   = 'fr-FR'
+  window.speechSynthesis.speak(utt)
 }
 
 // ── Composant principal ────────────────────────────────────────────────────────
@@ -86,6 +98,7 @@ interface Display {
   phaseTotalS:      number
   totalProgress:    number
   accentColor?:     string
+  countdownN?:      number   // chiffre affiché pendant la phase countdown (10→4), undefined sinon
 }
 
 
@@ -113,9 +126,10 @@ export function TableRunner({ table, onDone }: Props) {
     customPhaseType?: string
   }>>([])
 
-  const lastSegmentRef = useRef(-1)
-  const mountedRef     = useRef(true)
-  const phaseRef       = useRef<RunnerPhase>('idle')
+  const lastSegmentRef     = useRef(-1)
+  const mountedRef         = useRef(true)
+  const phaseRef           = useRef<RunnerPhase>('idle')
+  const lastCountdownNRef  = useRef(-1)
 
   // ── State UI ────────────────────────────────────────────────────────────────
   const initTotalRows = table.type === 'custom' ? (table.customSeriesCount ?? 0) : table.rows.length
@@ -281,6 +295,13 @@ export function TableRunner({ table, onDone }: Props) {
       return
     }
 
+    // ── Custom: countdown → grand chiffre amber, timer simple ─────────────────
+    if (customPhaseType === 'countdown') {
+      lastCountdownNRef.current = -1
+      breathStore.getState().setPhaseComplete('inhale', 'hold-full' as any, durationS)
+      return
+    }
+
     // ── Recovery (custom or standard) → ventilation libre ────────────────────
     if (type === 'recovery' || customPhaseType === 'recovery') {
       void totalRows
@@ -386,6 +407,18 @@ export function TableRunner({ table, onDone }: Props) {
       accentColor = seg.type === 'hold' ? '#7561af' : '#34d399'
     }
 
+    // ── Countdown : chiffre vocal + visuel (10 → 4) ──────────────────────────
+    let countdownN: number | undefined
+    if (seg.customPhaseType === 'countdown') {
+      const n = Math.ceil(segRemaining)
+      countdownN = n <= 10 ? n : undefined
+      if (n >= 4 && n !== lastCountdownNRef.current) {
+        lastCountdownNRef.current = n
+        const vce = useVoiceGuideStore.getState()
+        if (vce.voiceEnabled) speakCountdownNumber(n, vce.voiceVolume, vce.voiceRate)
+      }
+    }
+
     setDisplay({
       rowIndex:        seg.rowIndex,
       totalRows,
@@ -397,6 +430,7 @@ export function TableRunner({ table, onDone }: Props) {
       phaseTotalS:     seg.endS - seg.startS,
       totalProgress:   elapsedS / totalS,
       accentColor,
+      countdownN,
     })
     phaseRef.current = seg.type === 'hold' ? 'hold' : 'recovery'
 
@@ -523,9 +557,23 @@ export function TableRunner({ table, onDone }: Props) {
         )}
       </div>
 
-      {/* BreathCircle */}
+      {/* BreathCircle ou grand chiffre décompte */}
       <div className="flex-1 flex items-center justify-center">
-        <BreathCircle />
+        {display.countdownN !== undefined && display.countdownN >= 4 ? (
+          <span
+            style={{
+              fontSize: '160px',
+              fontWeight: 200,
+              color: '#f59e0b',
+              lineHeight: 1,
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {display.countdownN}
+          </span>
+        ) : (
+          <BreathCircle />
+        )}
       </div>
 
       {/* Timer phase */}

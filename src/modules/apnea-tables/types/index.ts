@@ -1,5 +1,8 @@
 // ── Types du module Table Apnée ───────────────────────────────────────────────
 
+import type { ExerciseCategory } from '@core/types'
+export type { ExerciseCategory }
+
 export type TableType = 'co2' | 'o2' | 'custom'
 export type RecoveryPattern = 'soupir' | '6-6-12' | 'co2-pattern'
 
@@ -19,6 +22,7 @@ export type CustomPhaseType =
   | 'exhale'
   | 'recovery'
   | 'ventilation'
+  | 'countdown'
 
 export interface CustomPhase {
   type:         CustomPhaseType
@@ -75,6 +79,9 @@ export interface ApneaTable {
 
   // CO2 / O2 : note affichée pendant la récupération (texte libre)
   recoveryNote?: string
+
+  // Famille / catégorie (partage le même référentiel qu'Exercise.category)
+  category?: ExerciseCategory
 
   createdAt:  string
   updatedAt:  string

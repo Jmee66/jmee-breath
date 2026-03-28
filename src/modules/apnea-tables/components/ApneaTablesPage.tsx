@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Plus, Play, Trash2, ChevronRight, Clock, Layers, Heart } from 'lucide-react'
-import type { ApneaTable } from '../types'
+import type { ApneaTable, ExerciseCategory } from '../types'
 import { tableRepository } from '../services/tableRepository'
 import { tableWriter } from '../services/tableWriter'
 import { totalTableDuration, fmtTime } from '../services/tableGenerator'
@@ -20,14 +20,35 @@ const TYPE_COLOR: Record<ApneaTable['type'], string> = {
   custom: 'text-amber-400 bg-amber-400/10 border-amber-400/20',
 }
 
+type CategoryFilter = ExerciseCategory | 'all'
+
+const CATEGORY_TABS: { value: CategoryFilter; label: string }[] = [
+  { value: 'all',         label: 'Toutes' },
+  { value: 'apnea',       label: 'Apnée' },
+  { value: 'breathing',   label: 'Respiration' },
+  { value: 'preparation', label: 'Préparation' },
+  { value: 'meditation',  label: 'Méditation' },
+  { value: 'visualization', label: 'Visualisation' },
+  { value: 'panic',       label: 'Panique' },
+  { value: 'custom',      label: 'Perso' },
+]
+
 // ── Composant principal ────────────────────────────────────────────────────────
 
 export default function ApneaTablesPage() {
-  const [tables,      setTables]      = useState<ApneaTable[]>([])
-  const [view,        setView]        = useState<'list' | 'editor' | 'runner'>('list')
-  const [editTarget,  setEditTarget]  = useState<ApneaTable | null>(null)
-  const [runTarget,   setRunTarget]   = useState<ApneaTable | null>(null)
-  const [deleteId,    setDeleteId]    = useState<string | null>(null)
+  const [tables,          setTables]          = useState<ApneaTable[]>([])
+  const [view,            setView]            = useState<'list' | 'editor' | 'runner'>('list')
+  const [editTarget,      setEditTarget]      = useState<ApneaTable | null>(null)
+  const [runTarget,       setRunTarget]       = useState<ApneaTable | null>(null)
+  const [deleteId,        setDeleteId]        = useState<string | null>(null)
+  const [activeCategory,  setActiveCategory]  = useState<CategoryFilter>('all')
+
+  const filteredTables = useMemo(
+    () => activeCategory === 'all'
+      ? tables
+      : tables.filter((t) => (t.category ?? 'apnea') === activeCategory),
+    [tables, activeCategory],
+  )
 
   const { settings, load: loadSettings, toggleTableFavorite } = useSettingsStore()
 
@@ -107,12 +128,37 @@ export default function ApneaTablesPage() {
         </button>
       </div>
 
+      {/* Filtres catégorie */}
+      {tables.length > 0 && (
+        <div className="px-4 pb-2 flex gap-2 overflow-x-auto no-scrollbar">
+          {CATEGORY_TABS.filter((tab) =>
+            tab.value === 'all' || tables.some((t) => (t.category ?? 'apnea') === tab.value)
+          ).map((tab) => (
+            <button
+              key={tab.value}
+              onClick={() => setActiveCategory(tab.value)}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                activeCategory === tab.value
+                  ? 'bg-accent text-white'
+                  : 'bg-bg-elevated border border-border text-text-muted'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Liste */}
       <div className="flex-1 overflow-y-auto px-4 pb-8 space-y-3">
         {tables.length === 0 ? (
           <EmptyState onCreate={() => setView('editor')} />
+        ) : filteredTables.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center px-6">
+            <p className="text-text-muted text-sm">Aucune table dans cette famille.</p>
+          </div>
         ) : (
-          tables.map((table) => (
+          filteredTables.map((table) => (
             <TableCard
               key={table.id}
               table={table}

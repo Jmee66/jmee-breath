@@ -513,6 +513,7 @@ function mapRemoteApneaTable(r: any): ApneaTable {
     customPhases:       r.custom_phases      ?? undefined,
     customSeriesCount:  r.custom_series_count ?? undefined,
     recoveryNote:       r.recovery_note      ?? undefined,
+    category:           r.category           ?? undefined,
     createdAt:          r.created_at,
     updatedAt:          r.updated_at,
     syncedAt:           new Date().toISOString(),
@@ -534,6 +535,7 @@ function apneaTableToSupabase(t: ApneaTable, userId: string): Record<string, unk
     custom_phases:        t.customPhases       ?? null,
     custom_series_count:  t.customSeriesCount  ?? null,
     recovery_note:        t.recoveryNote       ?? null,
+    category:             t.category           ?? null,
     created_at:           t.createdAt,
     updated_at:           t.updatedAt,
   }

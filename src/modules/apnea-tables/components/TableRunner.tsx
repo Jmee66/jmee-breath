@@ -99,6 +99,7 @@ interface Display {
   totalProgress:    number
   accentColor?:     string
   countdownN?:      number   // chiffre affiché pendant la phase countdown (10→4), undefined sinon
+  isCountdown?:     boolean  // true pendant toute la durée d'un segment countdown
 }
 
 
@@ -295,10 +296,11 @@ export function TableRunner({ table, onDone }: Props) {
       return
     }
 
-    // ── Custom: countdown → grand chiffre amber, timer simple ─────────────────
+    // ── Custom: countdown → timer visuel/vocal pur, aucun breathStore ────────
     if (customPhaseType === 'countdown') {
       lastCountdownNRef.current = -1
-      breathStore.getState().setPhaseComplete('inhale', 'hold-full' as any, durationS)
+      // stopClock() a déjà appelé endSession() — on ne touche pas breathStore ici
+      // pour éviter animations et sons du BreathEngine pendant le décompte
       return
     }
 
@@ -383,7 +385,8 @@ export function TableRunner({ table, onDone }: Props) {
     const totalRows    = table.type === 'custom' ? (table.customSeriesCount ?? 0) : table.rows.length
 
     // Ventilation libre (recovery sans BreathClock) : mettre à jour la progression manuellement
-    if (seg.type === 'recovery' && clockRef.current === null) {
+    // Exclure countdown : pas de breathStore pendant le décompte
+    if (seg.type === 'recovery' && clockRef.current === null && seg.customPhaseType !== 'countdown') {
       const segProgress = 1 - (segRemaining / (seg.endS - seg.startS))
       breathStore.getState().setProgress(Math.min(1, Math.max(0, segProgress)))
     }
@@ -431,6 +434,7 @@ export function TableRunner({ table, onDone }: Props) {
       totalProgress:   elapsedS / totalS,
       accentColor,
       countdownN,
+      isCountdown: seg.customPhaseType === 'countdown',
     })
     phaseRef.current = seg.type === 'hold' ? 'hold' : 'recovery'
 
@@ -559,18 +563,23 @@ export function TableRunner({ table, onDone }: Props) {
 
       {/* BreathCircle ou grand chiffre décompte */}
       <div className="flex-1 flex items-center justify-center">
-        {display.countdownN !== undefined && display.countdownN >= 4 ? (
-          <span
-            style={{
-              fontSize: '160px',
-              fontWeight: 200,
-              color: '#f59e0b',
-              lineHeight: 1,
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          >
-            {display.countdownN}
-          </span>
+        {display.isCountdown ? (
+          // Pendant le countdown : grand chiffre amber (10→4), vide en dessous
+          display.countdownN !== undefined && display.countdownN >= 4 ? (
+            <span
+              style={{
+                fontSize: '160px',
+                fontWeight: 200,
+                color: '#f59e0b',
+                lineHeight: 1,
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {display.countdownN}
+            </span>
+          ) : (
+            <div style={{ width: 200, height: 200 }} />
+          )
         ) : (
           <BreathCircle />
         )}

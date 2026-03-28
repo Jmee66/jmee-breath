@@ -15,7 +15,7 @@ import type { Exercise, Phase, PhaseType } from '@core/types'
 import { fmtTime, CUSTOM_PHASE_CONFIG, customProgramDuration } from '../services/tableGenerator'
 import { BreathClock }                    from '@modules/breath-engine'
 import { BreathVoiceGuide, estimatePreparationDuration } from '@modules/breath-engine/voice/BreathVoiceGuide'
-import { BreathCircle }                   from '@modules/breath-engine'
+import { BreathVisual }                   from '@modules/breath-engine'
 import { useBreathStore }                 from '@modules/breath-engine'
 import { useSoundStore, useDroneStore, useVoiceGuideStore } from '@modules/breath-engine'
 
@@ -414,7 +414,7 @@ export function TableRunner({ table, onDone }: Props) {
             <div style={{ width: 200, height: 200 }} />
           )
         ) : (
-          <BreathCircle />
+          <BreathVisual />
         )}
       </div>
 

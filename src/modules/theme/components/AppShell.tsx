@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom'
 import { BottomNav } from './BottomNav'
 import { SideNav } from './SideNav'
+import { GlobalSoundButton } from './GlobalSoundButton'
 import { useRiverAmbience } from '@modules/breath-engine'
 import { useSyncInit, usePreferencesSync } from '@core/sync'
 
@@ -28,6 +29,11 @@ export function AppShell() {
 
       {/* Nav bottom mobile */}
       <BottomNav />
+
+      {/* Bouton son global — flottant mobile uniquement (desktop = SideNav) */}
+      <div className="lg:hidden">
+        <GlobalSoundButton variant="floating" />
+      </div>
     </div>
   )
 }

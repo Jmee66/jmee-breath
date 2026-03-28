@@ -4,6 +4,7 @@ import {
   Timer, Layers, User, Settings, LogOut,
 } from 'lucide-react'
 import { signOut } from '@modules/auth'
+import { GlobalSoundButton } from './GlobalSoundButton'
 
 const mainItems = [
   { to: '/',          icon: Home,      label: 'Accueil' },
@@ -53,6 +54,14 @@ export function SideNav() {
           ))}
         </ul>
       </nav>
+
+      {/* Bouton son */}
+      <div className="px-4 pb-3">
+        <div className="flex items-center gap-2 text-sm font-medium text-text-secondary">
+          <GlobalSoundButton variant="inline" />
+          <span className="text-xs text-text-muted">Son</span>
+        </div>
+      </div>
 
       {/* Nav bas */}
       <div className="border-t border-border px-3 py-3">

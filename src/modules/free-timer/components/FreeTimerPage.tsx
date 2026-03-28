@@ -1016,7 +1016,7 @@ export function FreeTimerPage() {
   const subtitle = mode === 'apnea' ? 'Apnée statique' : 'Chronomètre libre'
 
   return (
-    <PageContainer title="Timer" subtitle={subtitle} actions={<TimerSoundButton />}>
+    <PageContainer title="Timer" subtitle={subtitle}>
       {/* Widgets row — toujours visibles */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1.5rem', marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
         <BestSession seconds={bestSessionSeconds} />

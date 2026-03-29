@@ -80,7 +80,7 @@ export const useWindStore = create<WindState>()(
       }),
     }),
     {
-      name: 'breath-wind-settings-v4',
+      name: 'breath-wind-settings-v5',
       partialize: (s) => ({
         windEnabled:       s.windEnabled,
         windVolume:        s.windVolume,

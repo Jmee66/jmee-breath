@@ -26,6 +26,7 @@ export function useWindAmbience(): void {
   const engineRef   = useRef<BreathWindEngine | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const activeRef   = useRef(false)
+  const watchdogRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const windEnabled      = useWindStore((s) => s.windEnabled)
   const windVolume       = useWindStore((s) => s.windVolume)
@@ -72,6 +73,27 @@ export function useWindAmbience(): void {
     engineRef.current?.setBreathSpeed(effectiveInhaleS, effectiveExhaleS)
   }, [effectiveInhaleS, effectiveExhaleS])
 
+  // ── Helper : relance le wind engine si source morte ─────────────────────
+  const tryRecover = () => {
+    const ctx    = audioCtxRef.current
+    const engine = engineRef.current
+    if (!ctx || ctx.state === 'closed' || !engine) return
+
+    const s   = useWindStore.getState()
+    if (!s.windEnabled || !s.windBreathPhaseActive) return
+
+    const inh = s.windBreathOverrideActive ? s.windBreathOverrideInhaleS : s.windBreathInhaleS
+    const exh = s.windBreathOverrideActive ? s.windBreathOverrideExhaleS : s.windBreathExhaleS
+
+    const doRecover = () => engine.ensurePlaying(inh, exh)
+
+    if (ctx.state !== 'running') {
+      void ctx.resume().then(doRecover).catch(() => {})
+    } else {
+      doRecover()
+    }
+  }
+
   // ── 4. Start / Stop — selon shouldPlay ──────────────────────────────────
   useEffect(() => {
     const ctx    = audioCtxRef.current
@@ -91,16 +113,24 @@ export function useWindAmbience(): void {
 
       // Reprise après interruption iOS (appel, notification)
       ctx.onstatechange = () => {
-        const s = useWindStore.getState()
-        if (ctx.state === 'running' && s.windEnabled && s.windBreathPhaseActive && !engine.isActive) {
-          const inh = s.windBreathOverrideActive ? s.windBreathOverrideInhaleS : s.windBreathInhaleS
-          const exh = s.windBreathOverrideActive ? s.windBreathOverrideExhaleS : s.windBreathExhaleS
-          engine.start(inh, exh)
-        }
+        if (ctx.state === 'running') tryRecover()
       }
+
+      // Watchdog 4 s : détecte source morte sans événement (edge-case iOS)
+      if (watchdogRef.current) clearInterval(watchdogRef.current)
+      watchdogRef.current = setInterval(() => {
+        if (!activeRef.current) return
+        const c = audioCtxRef.current
+        if (!c || c.state !== 'running') return
+        if (engineRef.current && !engineRef.current.isActive) {
+          tryRecover()
+        }
+      }, 4000)
+
     } else {
       engine.stop()
       if (ctx.onstatechange) ctx.onstatechange = null
+      if (watchdogRef.current) { clearInterval(watchdogRef.current); watchdogRef.current = null }
     }
     // effectiveInhaleS/ExhaleS : transmis via setBreathSpeed, pas besoin de restart
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -109,10 +139,9 @@ export function useWindAmbience(): void {
   // ── 5. Reprise après verrouillage écran ─────────────────────────────────
   useEffect(() => {
     const onVisibility = () => {
-      if (document.visibilityState !== 'visible' || !activeRef.current) return
-      const ctx = audioCtxRef.current
-      if (!ctx || ctx.state === 'closed') return
-      if (ctx.state !== 'running') void ctx.resume()
+      if (document.visibilityState !== 'visible') return
+      // Petit délai pour laisser iOS rétablir l'AudioContext
+      setTimeout(() => tryRecover(), 300)
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => document.removeEventListener('visibilitychange', onVisibility)
@@ -121,6 +150,7 @@ export function useWindAmbience(): void {
   // ── 6. Cleanup au démontage ─────────────────────────────────────────────
   useEffect(() => {
     return () => {
+      if (watchdogRef.current) clearInterval(watchdogRef.current)
       engineRef.current?.stop()
       const ctx = audioCtxRef.current
       if (ctx) {

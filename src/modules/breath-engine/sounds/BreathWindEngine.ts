@@ -104,6 +104,27 @@ export class BreathWindEngine {
     this._fadeOutCurrent()
   }
 
+  /**
+   * Relance le cycle si le moteur est censé tourner mais que la source
+   * a été tuée (interruption iOS, verrouillage écran).
+   */
+  ensurePlaying(inhaleS: number, exhaleS: number): void {
+    if (!this.loaded) return
+    this.inhaleS = inhaleS
+    this.exhaleS = exhaleS
+    // Si running mais source morte → relancer
+    if (this.running && !this.currentSource) {
+      this._clearTimer()
+      this._beginInhale()
+      return
+    }
+    // Si pas running → démarrer normalement
+    if (!this.running) {
+      this.running = true
+      this._beginInhale()
+    }
+  }
+
   /** Volume maître live (lissage 80 ms). */
   setVolume(volume: number): void {
     this.masterGain.gain.setTargetAtTime(volume, this.audioCtx.currentTime, 0.08)
@@ -150,33 +171,50 @@ export class BreathWindEngine {
   private _play(buffer: AudioBuffer, durationS: number): void {
     this._fadeOutCurrent()
 
-    const now  = this.audioCtx.currentTime
-    const rate = buffer.duration / durationS
+    // Sécurité iOS : ne rien faire si AudioContext n'est pas actif
+    if (this.audioCtx.state !== 'running') return
 
-    const source   = this.audioCtx.createBufferSource()
-    source.buffer  = buffer
-    source.loop    = true
-    source.playbackRate.value = rate
+    try {
+      const now  = this.audioCtx.currentTime
+      const rate = buffer.duration / durationS
 
-    const fade            = this.audioCtx.createGain()
-    fade.gain.value       = 0
+      const source   = this.audioCtx.createBufferSource()
+      source.buffer  = buffer
+      source.loop    = true
+      source.playbackRate.value = rate
 
-    source.connect(fade)
-    fade.connect(this.masterGain)
+      const fade            = this.audioCtx.createGain()
+      fade.gain.value       = 0
 
-    // Fade in 80 ms
-    fade.gain.setValueAtTime(0, now)
-    fade.gain.linearRampToValueAtTime(1, now + 0.08)
-    // Fade out 80 ms avant la fin
-    const fadeOutStart = Math.max(now + 0.08, now + durationS - 0.08)
-    fade.gain.setValueAtTime(1, fadeOutStart)
-    fade.gain.linearRampToValueAtTime(0, now + durationS)
+      source.connect(fade)
+      fade.connect(this.masterGain)
 
-    source.start(now)
-    source.stop(now + durationS + 0.05)
+      // Fade in 80 ms
+      fade.gain.setValueAtTime(0, now)
+      fade.gain.linearRampToValueAtTime(1, now + 0.08)
+      // Fade out 80 ms avant la fin
+      const fadeOutStart = Math.max(now + 0.08, now + durationS - 0.08)
+      fade.gain.setValueAtTime(1, fadeOutStart)
+      fade.gain.linearRampToValueAtTime(0, now + durationS)
 
-    this.currentSource = source
-    this.currentFade   = fade
+      source.start(now)
+      source.stop(now + durationS + 0.05)
+
+      // Détecte source tuée par iOS (interruption, verrouillage)
+      source.onended = () => {
+        if (this.currentSource === source) {
+          this.currentSource = null
+          this.currentFade   = null
+        }
+      }
+
+      this.currentSource = source
+      this.currentFade   = fade
+    } catch {
+      // AudioContext invalide ou interrompu — on laisse le watchdog relancer
+      this.currentSource = null
+      this.currentFade   = null
+    }
   }
 
   /** Phase inspiration : sample en avant. */

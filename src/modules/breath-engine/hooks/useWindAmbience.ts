@@ -49,12 +49,14 @@ export function useWindAmbience(): void {
         audioCtxRef.current = new AudioCtx()
       }
       if (!engineRef.current) {
-        engineRef.current = new BreathWindEngine(audioCtxRef.current, {
+        const eng = new BreathWindEngine(audioCtxRef.current, {
           enabled: true,
           volume:  windVolume,
           breathInhaleS: effectiveInhaleS,
           breathExhaleS: effectiveExhaleS,
         })
+        void eng.load('/sounds/breath-sample.mp3')
+        engineRef.current = eng
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

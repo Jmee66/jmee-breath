@@ -9,13 +9,19 @@
  *   · windBreathPhaseActive → false              : fondu 150 ms (fin de phase)
  *   · windEnabled → false                        : fondu 150 ms immédiat
  *   · windVolume change                          : setVolume() live
- *   · durées effectives change                   : setBreathSpeed() live
+ *   · durées effectives change                   : setBreathSpeed() live (même effet)
  *
  * Hiérarchie des durées :
  *   overrideActive → overrideInhaleS/ExhaleS (per-phase explicite)
  *   sinon          → windBreathInhaleS/ExhaleS (sliders globaux, réactifs)
  *
  * Le moteur est silencieux hors session (windBreathPhaseActive = false).
+ *
+ * Architecture : UN SEUL effet gère start + stop + changement de durée.
+ * Quand shouldPlay ou les durées changent, l'effet re-run :
+ *   · engine déjà active → setBreathSpeed (re-schedule à la volée)
+ *   · engine inactive     → start (crée la source et schedule)
+ *   · shouldPlay=false    → stop
  */
 
 import { useEffect, useRef } from 'react'
@@ -55,17 +61,10 @@ export function useWindAmbience(): void {
     engineRef.current?.setVolume(windVolume)
   }, [windVolume])
 
-  // ── Durées live (réglages globaux OU override per-phase) ──────────────
+  // ── Start / Stop / Speed — effet unifié ─────────────────────────────
   useEffect(() => {
     if (shouldPlay) {
-      engineRef.current?.setBreathSpeed(effectiveInhaleS, effectiveExhaleS)
-    }
-  }, [shouldPlay, effectiveInhaleS, effectiveExhaleS])
-
-  // ── Start / Stop ──────────────────────────────────────────────────────
-  useEffect(() => {
-    if (shouldPlay) {
-      // Création lazy de l'AudioContext
+      // Création lazy de l'AudioContext + engine
       if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
         audioCtxRef.current = new AudioCtx()
         engineRef.current   = new BreathWindEngine(audioCtxRef.current, {
@@ -79,18 +78,24 @@ export function useWindAmbience(): void {
       const ctx    = audioCtxRef.current!
       const engine = engineRef.current!
 
-      const doStart = () => engine.start(effectiveInhaleS, effectiveExhaleS)
-
-      if (ctx.state === 'suspended') {
-        void ctx.resume().then(doStart)
+      if (engine.isActive) {
+        // ── Déjà en lecture → change les durées à la volée ──────────
+        engine.setBreathSpeed(effectiveInhaleS, effectiveExhaleS)
       } else {
-        doStart()
+        // ── Pas en lecture → démarre ────────────────────────────────
+        const doStart = () => engine.start(effectiveInhaleS, effectiveExhaleS)
+
+        if (ctx.state === 'suspended') {
+          void ctx.resume().then(doStart)
+        } else {
+          doStart()
+        }
       }
 
       // Reprise après interruption iOS
       ctx.onstatechange = () => {
         const s = useWindStore.getState()
-        if (ctx.state === 'running' && s.windEnabled && s.windBreathPhaseActive && engineRef.current?.isActive === false) {
+        if (ctx.state === 'running' && s.windEnabled && s.windBreathPhaseActive && !engineRef.current?.isActive) {
           const inh = s.windBreathOverrideActive ? s.windBreathOverrideInhaleS : s.windBreathInhaleS
           const exh = s.windBreathOverrideActive ? s.windBreathOverrideExhaleS : s.windBreathExhaleS
           engineRef.current?.start(inh, exh)
@@ -99,9 +104,9 @@ export function useWindAmbience(): void {
     } else {
       engineRef.current?.stop()
     }
-    // effectiveInhaleS/ExhaleS exclus — gérés par l'effet durées séparé
+    // windVolume exclu — géré par l'effet volume séparé
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shouldPlay])
+  }, [shouldPlay, effectiveInhaleS, effectiveExhaleS])
 
   // ── Reprise après verrouillage écran ─────────────────────────────────
   useEffect(() => {

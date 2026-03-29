@@ -15,7 +15,7 @@ export interface WindSettings {
 
 export const DEFAULT_WIND_SETTINGS: WindSettings = {
   enabled:       false,
-  volume:        0.04,
+  volume:        0.024,
   breathInhaleS: 4,
   breathExhaleS: 8,
 }

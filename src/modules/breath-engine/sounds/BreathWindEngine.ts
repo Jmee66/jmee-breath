@@ -113,12 +113,17 @@ export class BreathWindEngine {
   }
 
   /**
-   * Stocke les nouvelles durées. Le prochain cycle inspir/expir
-   * les utilisera automatiquement — pas de re-scheduling.
+   * Met à jour les durées. Si le moteur tourne et que les valeurs
+   * ont changé, relance immédiatement un cycle inspir avec les
+   * nouvelles durées (feedback instantané).
    */
   setBreathSpeed(inhaleS: number, exhaleS: number): void {
+    const changed = inhaleS !== this.inhaleS || exhaleS !== this.exhaleS
     this.inhaleS = inhaleS
     this.exhaleS = exhaleS
+    if (changed && this.running) {
+      this._beginInhale()   // relance immédiatement avec les nouvelles durées
+    }
   }
 
   /** true si la source audio est active. */

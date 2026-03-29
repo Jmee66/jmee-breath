@@ -1,5 +1,8 @@
 // ── Warmup types — partagés entre FreeTimerPage et CustomWarmupEditor ─────────
 
+import type { ExerciseCategory } from '@core/types'
+export type { ExerciseCategory }
+
 export type WarmupStepType = 'breathe' | 'hold' | 'recovery' | 'inhale' | 'exhale' | 'co2' | 'go'
 
 export type WarmupBreathPattern =
@@ -72,6 +75,8 @@ export interface CustomWarmupStep {
 export interface CustomWarmup {
   id:                  string
   name:                string
+  /** Catégorie pour le filtrage par catégorie (favoris, page d'accueil) */
+  category?:           ExerciseCategory
   /** Étapes respiratoires avant l'apnée */
   steps:               CustomWarmupStep[]
   /** Durée de la phase GO finale (secondes) */

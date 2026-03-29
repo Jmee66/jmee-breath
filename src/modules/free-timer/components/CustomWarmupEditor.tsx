@@ -10,7 +10,18 @@
 
 import { useState } from 'react'
 import { Plus, X, Save, ChevronDown, ChevronUp, Timer, ArrowDown } from 'lucide-react'
-import type { CustomWarmup, CustomWarmupStep, CustomCycle, WarmupBreathPattern, WarmupStepType } from '../types'
+import type { CustomWarmup, CustomWarmupStep, CustomCycle, WarmupBreathPattern, WarmupStepType, ExerciseCategory } from '../types'
+
+const CATEGORY_OPTIONS: { value: ExerciseCategory; label: string }[] = [
+  { value: 'warmup',        label: 'Échauffement' },
+  { value: 'breathing',     label: 'Respiration' },
+  { value: 'apnea',         label: 'Apnée' },
+  { value: 'preparation',   label: 'Préparation' },
+  { value: 'meditation',    label: 'Méditation' },
+  { value: 'visualization', label: 'Visualisation' },
+  { value: 'panic',         label: 'Panique' },
+  { value: 'custom',        label: 'Personnalisé' },
+]
 
 // ── Pattern catalogue (mode ratio) ────────────────────────────────────────────
 
@@ -437,6 +448,7 @@ interface CustomWarmupEditorProps {
 
 export function CustomWarmupEditor({ initialWarmup, onSave, onCancel }: CustomWarmupEditorProps) {
   const [name, setName] = useState(initialWarmup?.name ?? '')
+  const [category, setCategory] = useState<ExerciseCategory>(initialWarmup?.category ?? 'warmup')
   const [steps, setSteps] = useState<CustomWarmupStep[]>(
     initialWarmup?.steps ?? [
       {
@@ -509,6 +521,7 @@ export function CustomWarmupEditor({ initialWarmup, onSave, onCancel }: CustomWa
     try {
       await onSave({
         name:                name.trim(),
+        category,
         steps,
         goDurationS,
         recoveryPattern,
@@ -571,6 +584,24 @@ export function CustomWarmupEditor({ initialWarmup, onSave, onCancel }: CustomWa
             placeholder="Ex: Mon 5 minutes perso"
             className="w-full rounded-xl bg-bg-elevated px-3 py-2.5 text-sm text-text-primary placeholder:text-white/30 border border-border focus:border-accent focus:outline-none transition-colors"
           />
+        </div>
+
+        {/* Catégorie */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+            Catégorie
+          </label>
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value as ExerciseCategory)}
+            className="w-full rounded-xl bg-bg-elevated border border-border px-3 py-2.5 text-sm text-text-primary outline-none focus:border-accent transition-colors"
+          >
+            {CATEGORY_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value} className="bg-bg-elevated">
+                {opt.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Étapes */}

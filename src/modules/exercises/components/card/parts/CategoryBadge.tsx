@@ -5,6 +5,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   'preparation':   'Préparation',
   'meditation':    'Méditation',
   'panic':         'Panique',
+  'warmup':        'Échauffement',
   'custom':        'Personnalisé',
 }
 
@@ -15,6 +16,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   'preparation':   'text-phase-recovery bg-phase-recovery/10',
   'meditation':    'text-phase-exhale bg-phase-exhale/10',
   'panic':         'text-status-error bg-status-error/10',
+  'warmup':        'text-status-warning bg-status-warning/10',
   'custom':        'text-text-secondary bg-bg-elevated',
 }
 

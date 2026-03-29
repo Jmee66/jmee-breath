@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Heart, ArrowRight } from 'lucide-react'
 import { PageContainer } from '@modules/theme'
@@ -8,11 +8,31 @@ import { tableRepository } from '@modules/apnea-tables/services/tableRepository'
 import { TableFavoriteCard } from '@modules/apnea-tables/components/TableFavoriteCard'
 import { getAllCustomWarmups } from '@modules/free-timer/services/customWarmupWriter'
 import { WarmupFavoriteCard } from '@modules/free-timer/components/WarmupFavoriteCard'
-import type { Exercise } from '@core/types'
+import type { Exercise, ExerciseCategory } from '@core/types'
 import type { ApneaTable } from '@modules/apnea-tables/types'
 import type { CustomWarmup } from '@modules/free-timer/types/index'
 
 type FilterTab = 'all' | 'exercises' | 'tables' | 'warmups'
+type CategoryFilter = ExerciseCategory | 'all'
+
+const CATEGORY_LABELS: Record<ExerciseCategory, string> = {
+  breathing:     'Respiration',
+  apnea:         'Apnee',
+  visualization: 'Visualisation',
+  preparation:   'Preparation',
+  meditation:    'Meditation',
+  panic:         'Panique',
+  warmup:        'Echauffement',
+  custom:        'Perso',
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────────
+
+/** Extrait la catégorie d'un favori (quel que soit le type) */
+function getCategory(item: Exercise | ApneaTable | CustomWarmup): ExerciseCategory | undefined {
+  if ('category' in item) return item.category as ExerciseCategory | undefined
+  return undefined
+}
 
 // ── Home page ─────────────────────────────────────────────────────────────────
 
@@ -23,6 +43,7 @@ export default function HomePage() {
   const [tables,      setTables]      = useState<ApneaTable[]>([])
   const [warmups,     setWarmups]     = useState<CustomWarmup[]>([])
   const [tab,         setTab]         = useState<FilterTab>('all')
+  const [catFilter,   setCatFilter]   = useState<CategoryFilter>('all')
   const [reorderMode, setReorderMode] = useState(false)
 
   useEffect(() => { void loadSettings() }, [loadSettings])
@@ -45,26 +66,56 @@ export default function HomePage() {
 
   const isLoading = settingsLoading || exercisesLoading
 
+  // ── Résolution des favoris par ID ───────────────────────────────────────────
+
   const hiddenPresetIds = settings.hiddenPresetIds ?? []
-  const favExercises = (settings.favoriteExerciseIds ?? [])
-    .filter((id) => !hiddenPresetIds.includes(id))
-    .map((id) => exercises.find((ex) => ex.id === id))
-    .filter((ex): ex is Exercise => ex !== undefined)
 
-  const favTables = (settings.favoriteTableIds ?? [])
-    .map((id) => tables.find((t) => t.id === id))
-    .filter((t): t is ApneaTable => t !== undefined)
+  const favExercisesAll = useMemo(() =>
+    (settings.favoriteExerciseIds ?? [])
+      .filter((id) => !hiddenPresetIds.includes(id))
+      .map((id) => exercises.find((ex) => ex.id === id))
+      .filter((ex): ex is Exercise => ex !== undefined),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [settings.favoriteExerciseIds, settings.hiddenPresetIds, exercises],
+  )
 
-  const favWarmups = (settings.favoriteWarmupIds ?? [])
-    .map((id) => warmups.find((w) => w.id === id))
-    .filter((w): w is CustomWarmup => w !== undefined)
+  const favTablesAll = useMemo(() =>
+    (settings.favoriteTableIds ?? [])
+      .map((id) => tables.find((t) => t.id === id))
+      .filter((t): t is ApneaTable => t !== undefined),
+    [settings.favoriteTableIds, tables],
+  )
 
-  // Sous-listes pour le filtre "Échauffements" : exercises + tables avec category='warmup' + CustomWarmups
-  const favExercisesWarmup = favExercises.filter(e => e.category === 'warmup')
-  const favTablesWarmup    = favTables.filter(t => t.category === 'warmup')
-  const warmupTabEmpty     = favWarmups.length === 0 && favTablesWarmup.length === 0 && favExercisesWarmup.length === 0
+  const favWarmupsAll = useMemo(() =>
+    (settings.favoriteWarmupIds ?? [])
+      .map((id) => warmups.find((w) => w.id === id))
+      .filter((w): w is CustomWarmup => w !== undefined),
+    [settings.favoriteWarmupIds, warmups],
+  )
 
-  const totalFavs = favExercises.length + favTables.length + favWarmups.length
+  // ── Catégories présentes dans les favoris (pour n'afficher que les filtres utiles) ──
+
+  const availableCategories = useMemo(() => {
+    const cats = new Set<ExerciseCategory>()
+    for (const ex of favExercisesAll) cats.add(ex.category)
+    for (const t  of favTablesAll)    if (t.category) cats.add(t.category)
+    for (const w  of favWarmupsAll)   if (w.category) cats.add(w.category)
+    return cats
+  }, [favExercisesAll, favTablesAll, favWarmupsAll])
+
+  // ── Filtrage par catégorie ──────────────────────────────────────────────────
+
+  const matchesCat = (item: Exercise | ApneaTable | CustomWarmup): boolean => {
+    if (catFilter === 'all') return true
+    return getCategory(item) === catFilter
+  }
+
+  const favExercises = catFilter === 'all' ? favExercisesAll : favExercisesAll.filter(matchesCat)
+  const favTables    = catFilter === 'all' ? favTablesAll    : favTablesAll.filter(matchesCat)
+  const favWarmups   = catFilter === 'all' ? favWarmupsAll   : favWarmupsAll.filter(matchesCat)
+
+  const totalFavs    = favExercisesAll.length + favTablesAll.length + favWarmupsAll.length
+  const filteredCount = favExercises.length + favTables.length + favWarmups.length
 
   const activeList = tab === 'exercises' ? favExercises
     : tab === 'tables' ? favTables
@@ -76,7 +127,15 @@ export default function HomePage() {
     setReorderMode(false)
   }
 
+  function handleCatChange(newCat: CategoryFilter) {
+    setCatFilter(newCat)
+    setReorderMode(false)
+  }
+
   const showReorderButton = tab !== 'all' && (activeList?.length ?? 0) > 1
+
+  // Détermine si le tab warmups est vide (avec filtre catégorie appliqué)
+  const warmupTabEmpty = favWarmups.length === 0 && favExercises.filter(e => e.category === 'warmup').length === 0 && favTables.filter(t => t.category === 'warmup').length === 0
 
   return (
     <PageContainer
@@ -92,18 +151,18 @@ export default function HomePage() {
                 : 'bg-bg-elevated text-text-secondary hover:bg-bg-overlay'
             }`}
           >
-            {reorderMode ? 'Terminer' : 'Réorganiser'}
+            {reorderMode ? 'Terminer' : 'Reorganiser'}
           </button>
         ) : undefined
       }
     >
-      {/* Filter tabs */}
-      <div className="flex gap-2 mb-4 overflow-x-auto pb-0.5 scrollbar-none">
+      {/* ── Type tabs ──────────────────────────────────────────────────────── */}
+      <div className="flex gap-2 mb-2 overflow-x-auto pb-0.5 scrollbar-none">
         {([
           { key: 'all',       label: 'Tous' },
           { key: 'exercises', label: 'Exercices' },
           { key: 'tables',    label: 'Tables' },
-          { key: 'warmups',   label: 'Échauffements' },
+          { key: 'warmups',   label: 'Echauffements' },
         ] as { key: FilterTab; label: string }[]).map(({ key, label }) => (
           <button
             key={key}
@@ -119,6 +178,35 @@ export default function HomePage() {
         ))}
       </div>
 
+      {/* ── Category filter (affiché uniquement si > 1 catégorie) ──────── */}
+      {availableCategories.size > 1 && (
+        <div className="flex gap-1.5 mb-4 overflow-x-auto pb-0.5 scrollbar-none">
+          <button
+            onClick={() => handleCatChange('all')}
+            className={`flex-shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors ${
+              catFilter === 'all'
+                ? 'bg-text-secondary text-bg-base'
+                : 'bg-bg-elevated/60 text-text-muted hover:bg-bg-overlay'
+            }`}
+          >
+            Toutes
+          </button>
+          {([...availableCategories].sort() as ExerciseCategory[]).map((cat) => (
+            <button
+              key={cat}
+              onClick={() => handleCatChange(cat)}
+              className={`flex-shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                catFilter === cat
+                  ? 'bg-text-secondary text-bg-base'
+                  : 'bg-bg-elevated/60 text-text-muted hover:bg-bg-overlay'
+              }`}
+            >
+              {CATEGORY_LABELS[cat]}
+            </button>
+          ))}
+        </div>
+      )}
+
       {isLoading ? (
         <div className="space-y-3">
           {[1, 2].map((i) => (
@@ -127,21 +215,31 @@ export default function HomePage() {
         </div>
       ) : totalFavs === 0 ? (
         <EmptyFavorites />
+      ) : filteredCount === 0 ? (
+        <div className="card p-5 flex flex-col items-center gap-3 text-center">
+          <Heart size={18} className="text-text-muted" />
+          <p className="text-xs text-text-muted">Aucun favori dans cette categorie</p>
+          <button
+            onClick={() => setCatFilter('all')}
+            className="text-xs text-accent hover:opacity-80 transition-opacity"
+          >
+            Voir tous les favoris
+          </button>
+        </div>
       ) : (
         <div className="space-y-3">
           {/* Exercises section */}
           {(() => {
-            const list = tab === 'warmups' ? favExercisesWarmup : favExercises
-            const show = (tab === 'all' || tab === 'exercises' || tab === 'warmups') && list.length > 0
+            const show = (tab === 'all' || tab === 'exercises') && favExercises.length > 0
             return show ? (
               <>
                 {tab === 'all' && <SectionHeader label="Exercices" to="/exercises" />}
-                {list.map((ex, idx) => (
+                {favExercises.map((ex, idx) => (
                   <FavoriteCard
                     key={ex.id}
                     exercise={ex}
                     isFirst={idx === 0}
-                    isLast={idx === list.length - 1}
+                    isLast={idx === favExercises.length - 1}
                     reorderMode={reorderMode && tab === 'exercises'}
                     onMoveUp={() => void moveFavorite(ex.id, 'up')}
                     onMoveDown={() => void moveFavorite(ex.id, 'down')}
@@ -153,17 +251,16 @@ export default function HomePage() {
 
           {/* Tables section */}
           {(() => {
-            const list = tab === 'warmups' ? favTablesWarmup : favTables
-            const show = (tab === 'all' || tab === 'tables' || tab === 'warmups') && list.length > 0
+            const show = (tab === 'all' || tab === 'tables') && favTables.length > 0
             return show ? (
               <>
-                {tab === 'all' && <SectionHeader label="Tables Apnée" to="/tables" />}
-                {list.map((t, idx) => (
+                {tab === 'all' && <SectionHeader label="Tables Apnee" to="/tables" />}
+                {favTables.map((t, idx) => (
                   <TableFavoriteCard
                     key={t.id}
                     table={t}
                     isFirst={idx === 0}
-                    isLast={idx === list.length - 1}
+                    isLast={idx === favTables.length - 1}
                     reorderMode={reorderMode && tab === 'tables'}
                     onRun={() => navigate('/tables')}
                     onMoveUp={() => void moveTableFavorite(t.id, 'up')}
@@ -177,7 +274,7 @@ export default function HomePage() {
           {/* Warmups section (CustomWarmup) */}
           {(tab === 'all' || tab === 'warmups') && favWarmups.length > 0 && (
             <>
-              {tab === 'all' && <SectionHeader label="Échauffements" to="/timer" />}
+              {tab === 'all' && <SectionHeader label="Echauffements" to="/timer" />}
               {favWarmups.map((w, idx) => (
                 <WarmupFavoriteCard
                   key={w.id}
@@ -198,7 +295,7 @@ export default function HomePage() {
             <EmptyFilteredTab tab={tab} />
           )}
 
-          {!reorderMode && tab === 'all' && favExercises.length === 0 && (
+          {!reorderMode && tab === 'all' && favExercises.length === 0 && catFilter === 'all' && (
             <div className="pt-1">
               <Link to="/exercises" className="flex items-center justify-center gap-1.5 py-2 text-xs text-text-secondary hover:text-text-primary transition-colors">
                 Explorer les exercices <ArrowRight size={12} />
@@ -229,13 +326,13 @@ function EmptyFilteredTab({ tab }: { tab: FilterTab }) {
     all:       { label: 'Explorer',               to: '/exercises' },
     exercises: { label: 'Explorer les exercices',  to: '/exercises' },
     tables:    { label: 'Voir les tables',          to: '/tables' },
-    warmups:   { label: 'Voir les échauffements',  to: '/timer' },
+    warmups:   { label: 'Voir les echauffements',  to: '/timer' },
   }
   const { label, to } = links[tab]
   return (
     <div className="card p-5 flex flex-col items-center gap-3 text-center">
       <Heart size={18} className="text-text-muted" />
-      <p className="text-xs text-text-muted">Aucun favori dans cette catégorie</p>
+      <p className="text-xs text-text-muted">Aucun favori dans cette categorie</p>
       <Link to={to} className="flex items-center gap-1 text-xs text-accent hover:opacity-80 transition-opacity">
         {label} <ArrowRight size={12} />
       </Link>
@@ -250,7 +347,7 @@ function EmptyFavorites() {
       <div>
         <p className="text-xs font-medium text-text-primary">Aucun favori</p>
         <p className="mt-0.5 text-xs text-text-muted">
-          Ajoutez des exercices, tables ou échauffements en favoris.
+          Ajoutez des exercices, tables ou echauffements en favoris.
         </p>
       </div>
       <Link to="/exercises" className="flex items-center gap-1 text-xs text-accent hover:opacity-80 transition-opacity">

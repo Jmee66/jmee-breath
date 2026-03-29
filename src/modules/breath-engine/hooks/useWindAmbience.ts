@@ -4,24 +4,13 @@
  * Vit dans AppShell : actif sur toutes les pages.
  * Crée son propre AudioContext (distinct de BreathClock et de useRiverAmbience).
  *
- * Cycle de vie :
- *   · windEnabled + windBreathPhaseActive → true : démarre le moteur
- *   · windBreathPhaseActive → false              : fondu 150 ms (fin de phase)
- *   · windEnabled → false                        : fondu 150 ms immédiat
- *   · windVolume change                          : setVolume() live
- *   · durées effectives change                   : setBreathSpeed() live (même effet)
- *
- * Hiérarchie des durées :
- *   overrideActive → overrideInhaleS/ExhaleS (per-phase explicite)
- *   sinon          → windBreathInhaleS/ExhaleS (sliders globaux, réactifs)
+ * Architecture simplifiée :
+ *   1. AudioContext créé dès que windEnabled=true (geste utilisateur → toggle)
+ *   2. Engine start/stop selon shouldPlay (windEnabled && phaseActive)
+ *   3. setBreathSpeed() stocke les nouvelles durées → le timer les utilise au cycle suivant
+ *   4. Volume → setVolume() live, indépendant
  *
  * Le moteur est silencieux hors session (windBreathPhaseActive = false).
- *
- * Architecture : UN SEUL effet gère start + stop + changement de durée.
- * Quand shouldPlay ou les durées changent, l'effet re-run :
- *   · engine déjà active → setBreathSpeed (re-schedule à la volée)
- *   · engine inactive     → start (crée la source et schedule)
- *   · shouldPlay=false    → stop
  */
 
 import { useEffect, useRef } from 'react'
@@ -47,82 +36,87 @@ export function useWindAmbience(): void {
   const overrideInhaleS  = useWindStore((s) => s.windBreathOverrideInhaleS)
   const overrideExhaleS  = useWindStore((s) => s.windBreathOverrideExhaleS)
 
-  // Durées effectives : per-phase > réglages globaux (live)
   const effectiveInhaleS = overrideActive ? overrideInhaleS : windInhaleS
   const effectiveExhaleS = overrideActive ? overrideExhaleS : windExhaleS
-
-  // Moteur actif uniquement pendant les phases recovery/ventilation
-  const shouldPlay = windEnabled && phaseActive
+  const shouldPlay       = windEnabled && phaseActive
 
   activeRef.current = shouldPlay
 
-  // ── Volume live ───────────────────────────────────────────────────────
+  // ── 1. AudioContext + Engine — créés au toggle windEnabled (geste user) ──
   useEffect(() => {
-    engineRef.current?.setVolume(windVolume)
-  }, [windVolume])
-
-  // ── Start / Stop / Speed — effet unifié ─────────────────────────────
-  useEffect(() => {
-    if (shouldPlay) {
-      // Création lazy de l'AudioContext + engine
+    if (windEnabled) {
       if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
         audioCtxRef.current = new AudioCtx()
-        engineRef.current   = new BreathWindEngine(audioCtxRef.current, {
-          enabled:       true,
-          volume:        windVolume,
+      }
+      if (!engineRef.current) {
+        engineRef.current = new BreathWindEngine(audioCtxRef.current, {
+          enabled: true,
+          volume:  windVolume,
           breathInhaleS: effectiveInhaleS,
           breathExhaleS: effectiveExhaleS,
         })
       }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [windEnabled])
 
-      const ctx    = audioCtxRef.current!
-      const engine = engineRef.current!
+  // ── 2. Volume live ──────────────────────────────────────────────────────
+  useEffect(() => {
+    engineRef.current?.setVolume(windVolume)
+  }, [windVolume])
 
-      if (engine.isActive) {
-        // ── Déjà en lecture → change les durées à la volée ──────────
-        engine.setBreathSpeed(effectiveInhaleS, effectiveExhaleS)
+  // ── 3. Durées live — stockées, prises en compte au cycle suivant ────────
+  useEffect(() => {
+    engineRef.current?.setBreathSpeed(effectiveInhaleS, effectiveExhaleS)
+  }, [effectiveInhaleS, effectiveExhaleS])
+
+  // ── 4. Start / Stop — selon shouldPlay ──────────────────────────────────
+  useEffect(() => {
+    const ctx    = audioCtxRef.current
+    const engine = engineRef.current
+    if (!ctx || !engine) return
+
+    if (shouldPlay) {
+      if (engine.isActive) return   // déjà en cours
+
+      const doStart = () => engine.start(effectiveInhaleS, effectiveExhaleS)
+
+      if (ctx.state === 'suspended') {
+        void ctx.resume().then(doStart)
       } else {
-        // ── Pas en lecture → démarre ────────────────────────────────
-        const doStart = () => engine.start(effectiveInhaleS, effectiveExhaleS)
-
-        if (ctx.state === 'suspended') {
-          void ctx.resume().then(doStart)
-        } else {
-          doStart()
-        }
+        doStart()
       }
 
-      // Reprise après interruption iOS
+      // Reprise après interruption iOS (appel, notification)
       ctx.onstatechange = () => {
         const s = useWindStore.getState()
-        if (ctx.state === 'running' && s.windEnabled && s.windBreathPhaseActive && !engineRef.current?.isActive) {
+        if (ctx.state === 'running' && s.windEnabled && s.windBreathPhaseActive && !engine.isActive) {
           const inh = s.windBreathOverrideActive ? s.windBreathOverrideInhaleS : s.windBreathInhaleS
           const exh = s.windBreathOverrideActive ? s.windBreathOverrideExhaleS : s.windBreathExhaleS
-          engineRef.current?.start(inh, exh)
+          engine.start(inh, exh)
         }
       }
     } else {
-      engineRef.current?.stop()
+      engine.stop()
+      if (ctx.onstatechange) ctx.onstatechange = null
     }
-    // windVolume exclu — géré par l'effet volume séparé
+    // effectiveInhaleS/ExhaleS : transmis via setBreathSpeed, pas besoin de restart
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shouldPlay, effectiveInhaleS, effectiveExhaleS])
+  }, [shouldPlay])
 
-  // ── Reprise après verrouillage écran ─────────────────────────────────
+  // ── 5. Reprise après verrouillage écran ─────────────────────────────────
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState !== 'visible' || !activeRef.current) return
       const ctx = audioCtxRef.current
       if (!ctx || ctx.state === 'closed') return
-      if (ctx.state !== 'running') {
-        void ctx.resume()
-      }
+      if (ctx.state !== 'running') void ctx.resume()
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => document.removeEventListener('visibilitychange', onVisibility)
   }, [])
 
-  // ── Cleanup au démontage ──────────────────────────────────────────────
+  // ── 6. Cleanup au démontage ─────────────────────────────────────────────
   useEffect(() => {
     return () => {
       engineRef.current?.stop()

@@ -6,10 +6,14 @@
  *
  * Design sonore :
  *   · Bruit blanc filtré (bandpass 400–700 Hz, Q=1.8) → texture de souffle
- *   · gain + fréquence du filtre animés en synchronisation :
- *       Inspiration : gain 0→1  + filtre 400 Hz→700 Hz (s'ouvre, se remplit)
- *       Expiration  : gain 1→0  + filtre 700 Hz→400 Hz (se referme, se vide)
- *   · Pré-schedulé 1 heure — sample-accurate, aucun timer JS
+ *   · gain + fréquence du filtre animés par timer JS + setTargetAtTime :
+ *       Inspiration : gain →1  + filtre →700 Hz (s'ouvre, se remplit)
+ *       Expiration  : gain →0  + filtre →400 Hz (se referme, se vide)
+ *   · Chaque cycle lit les durées en cours → réactif immédiatement
+ *
+ * Architecture : timer JS pour alterner inspir/expir, setTargetAtTime pour
+ * les courbes audio (exponentielles, naturelles). Pas de pré-scheduling.
+ * setBreathSpeed() stocke les nouvelles durées — le prochain cycle les utilise.
  *
  * Web Audio API Level 1 (Chrome iOS / macOS / Windows).
  */
@@ -20,10 +24,8 @@ import type { WindSettings } from './windTypes'
 const FILTER_LOW  = 400    // Hz — expir fin (canal fermé, grave mat)
 const FILTER_HIGH = 700    // Hz — inspir plein (canal ouvert, air qui passe)
 const FILTER_Q    = 1.8    // légèrement résonant → texture présente, pas trop sifflante
-const LOOKAHEAD_S = 3600   // secondes — 1 heure d'automation pré-schedulée
 
 // ── Cache bruit blanc — module-level ─────────────────────────────────────────
-// Alloué une seule fois par sample-rate, réutilisé entre les instances.
 let _noiseBuffer: AudioBuffer | null = null
 let _noiseSampleRate = 0
 
@@ -42,10 +44,13 @@ function getNoiseBuffer(ctx: AudioContext): AudioBuffer {
 
 export class BreathWindEngine {
   private readonly masterGain: GainNode
-  private readonly bandpass:   BiquadFilterNode   // filtre bande passante — texture de souffle
-  private readonly breathGain: GainNode            // enveloppe amplitude inspir/expir
+  private readonly bandpass:   BiquadFilterNode
+  private readonly breathGain: GainNode
   private noiseSource: AudioBufferSourceNode | null = null
   private running = false
+  private timer:    ReturnType<typeof setTimeout> | null = null
+  private inhaleS = 4
+  private exhaleS = 8
 
   constructor(
     private readonly audioCtx: AudioContext,
@@ -71,7 +76,9 @@ export class BreathWindEngine {
   /** Démarre la respiration avec les durées fournies. */
   start(inhaleS: number, exhaleS: number): void {
     if (this.running) return
-    this.running = true
+    this.running  = true
+    this.inhaleS  = inhaleS
+    this.exhaleS  = exhaleS
 
     this.noiseSource        = this.audioCtx.createBufferSource()
     this.noiseSource.buffer = getNoiseBuffer(this.audioCtx)
@@ -79,13 +86,14 @@ export class BreathWindEngine {
     this.noiseSource.connect(this.bandpass)
     this.noiseSource.start()
 
-    this._schedule(this.audioCtx.currentTime, inhaleS, exhaleS)
+    this._beginInhale()
   }
 
   /** Arrête le souffle avec un fondu court (150 ms). */
   stop(): void {
     if (!this.running) return
     this.running = false
+    this._clearTimer()
 
     const now = this.audioCtx.currentTime
     this.breathGain.gain.cancelScheduledValues(now)
@@ -101,23 +109,16 @@ export class BreathWindEngine {
 
   /** Volume maître à la volée (lissage 80 ms). */
   setVolume(volume: number): void {
-    if (this.running) {
-      this.masterGain.gain.setTargetAtTime(volume, this.audioCtx.currentTime, 0.08)
-    }
+    this.masterGain.gain.setTargetAtTime(volume, this.audioCtx.currentTime, 0.08)
   }
 
   /**
-   * Modifie les durées en cours de lecture.
-   * Annule les automations existantes et re-schedule depuis maintenant.
+   * Stocke les nouvelles durées. Le prochain cycle inspir/expir
+   * les utilisera automatiquement — pas de re-scheduling.
    */
   setBreathSpeed(inhaleS: number, exhaleS: number): void {
-    if (!this.running) return
-    const now = this.audioCtx.currentTime
-    this.breathGain.gain.cancelScheduledValues(now)
-    this.breathGain.gain.setValueAtTime(0, now)
-    this.bandpass.frequency.cancelScheduledValues(now)
-    this.bandpass.frequency.setValueAtTime(FILTER_LOW, now)
-    this._schedule(now, inhaleS, exhaleS)
+    this.inhaleS = inhaleS
+    this.exhaleS = exhaleS
   }
 
   /** true si la source audio est active. */
@@ -127,47 +128,43 @@ export class BreathWindEngine {
 
   // ── Interne ──────────────────────────────────────────────────────────────
 
+  private _clearTimer(): void {
+    if (this.timer != null) { clearTimeout(this.timer); this.timer = null }
+  }
+
   /**
-   * Pré-schedule LOOKAHEAD_S secondes de cycles respiration depuis `from`.
-   *
-   * Par cycle :
-   *   · Inspiration (inhaleS) : gain 0→1,   filtre FILTER_LOW→FILTER_HIGH
-   *   · Expiration  (exhaleS) : gain 1→0,   filtre FILTER_HIGH→FILTER_LOW
-   *
-   * Le gain utilise une courbe en S (deux demi-ramps) pour que la
-   * perception de durée colle mieux aux valeurs affichées :
-   *   Inspir : montée rapide à 0.5 (premier tiers), lente vers 1.0 (deux tiers)
-   *   Expir  : descente lente de 1.0 à 0.5 (deux tiers), rapide vers 0 (dernier tiers)
+   * Phase inspiration : gain →1, filtre →FILTER_HIGH.
+   * Au bout de inhaleS secondes → lance l'expiration.
    */
-  private _schedule(from: number, inhaleS: number, exhaleS: number): void {
-    const g = this.breathGain.gain
-    const f = this.bandpass.frequency
-    const end = from + LOOKAHEAD_S
+  private _beginInhale(): void {
+    if (!this.running) return
+    const now = this.audioCtx.currentTime
+    const tau = this.inhaleS / 3   // à 3τ → ~95 % du trajet
 
-    g.setValueAtTime(0,          from)
-    f.setValueAtTime(FILTER_LOW, from)
+    this.breathGain.gain.cancelScheduledValues(now)
+    this.breathGain.gain.setTargetAtTime(1.0, now, tau)
+    this.bandpass.frequency.cancelScheduledValues(now)
+    this.bandpass.frequency.setTargetAtTime(FILTER_HIGH, now, tau)
 
-    let cursor = from
-    while (cursor < end) {
-      // ── Inspiration — s'ouvre ──────────────────────────────────
-      const riseMid = cursor + inhaleS * 0.33
-      const riseEnd = cursor + inhaleS
-      // Gain : montée rapide 0→0.5, puis lente 0.5→1.0
-      g.linearRampToValueAtTime(0.5,  riseMid)
-      g.linearRampToValueAtTime(1.0,  riseEnd)
-      // Filtre : ramp linéaire continue sur toute la durée
-      f.linearRampToValueAtTime(FILTER_HIGH, riseEnd)
-      cursor = riseEnd
+    this._clearTimer()
+    this.timer = setTimeout(() => this._beginExhale(), this.inhaleS * 1000)
+  }
 
-      // ── Expiration — se referme ────────────────────────────────
-      const fallMid = cursor + exhaleS * 0.67
-      const fallEnd = cursor + exhaleS
-      // Gain : descente lente 1.0→0.5, puis rapide 0.5→~0
-      g.linearRampToValueAtTime(0.5,    fallMid)
-      g.linearRampToValueAtTime(0.0001, fallEnd)
-      // Filtre : ramp linéaire continue sur toute la durée
-      f.linearRampToValueAtTime(FILTER_LOW, fallEnd)
-      cursor = fallEnd
-    }
+  /**
+   * Phase expiration : gain →~0, filtre →FILTER_LOW.
+   * Au bout de exhaleS secondes → lance l'inspiration.
+   */
+  private _beginExhale(): void {
+    if (!this.running) return
+    const now = this.audioCtx.currentTime
+    const tau = this.exhaleS / 3
+
+    this.breathGain.gain.cancelScheduledValues(now)
+    this.breathGain.gain.setTargetAtTime(0.001, now, tau)
+    this.bandpass.frequency.cancelScheduledValues(now)
+    this.bandpass.frequency.setTargetAtTime(FILTER_LOW, now, tau)
+
+    this._clearTimer()
+    this.timer = setTimeout(() => this._beginInhale(), this.exhaleS * 1000)
   }
 }

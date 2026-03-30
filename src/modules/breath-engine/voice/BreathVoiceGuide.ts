@@ -46,14 +46,16 @@ const PHASE_WORD: Record<InternalPhaseType, string | null> = {
   exhale:       'Expirez',
   'hold-empty': 'Retenez',
   recovery:     'Récupérez',
+  ventilation:  'Ventilez',
 }
 
 // Labels de phase pour la description de l'exercice
 const PHASE_LABEL: Record<PhaseType, string> = {
-  inhale:   'Inspirez',
-  hold:     'Retenez',
-  exhale:   'Expirez',
-  recovery: 'Récupérez',
+  inhale:       'Inspirez',
+  hold:         'Retenez',
+  exhale:       'Expirez',
+  recovery:     'Récupérez',
+  ventilation:  'Ventilez',
 }
 
 // ── Sélection de voix ─────────────────────────────────────────────────────────

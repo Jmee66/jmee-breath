@@ -77,10 +77,15 @@ export function useBreathSession() {
 
   const handlePhaseChange = useCallback((phase: ScheduledPhase) => {
     // Guidage vocal — annonce la phase dès le changement (toutes phases, y compris préparation)
-    voiceGuideRef.current?.speak(phase.internalType)
+    // Si la phase a une instruction personnalisée, la prononcer à la place du mot par défaut
+    if (phase.label) {
+      voiceGuideRef.current?.speakText(phase.label)
+    } else {
+      voiceGuideRef.current?.speak(phase.internalType)
+    }
 
     // setPhaseComplete : un seul set() Zustand → zéro render intermédiaire, transitions sans saut
-    store.setPhaseComplete(phase.publicType, phase.internalType, phase.durationSeconds)
+    store.setPhaseComplete(phase.publicType, phase.internalType, phase.durationSeconds, phase.label)
     if (phase.repIndex >= 0) {
       store.setRepIndex(phase.repIndex)
     }

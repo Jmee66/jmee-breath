@@ -32,6 +32,7 @@ export default {
           hold: 'var(--color-phase-hold)',
           exhale: 'var(--color-phase-exhale)',
           recovery: 'var(--color-phase-recovery)',
+          ventilation: 'var(--color-phase-ventilation)',
         },
         status: {
           success: 'var(--color-status-success)',

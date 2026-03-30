@@ -1,4 +1,4 @@
-export type PhaseType = 'inhale' | 'hold' | 'exhale' | 'recovery'
+export type PhaseType = 'inhale' | 'hold' | 'exhale' | 'recovery' | 'ventilation'
 
 export type ExerciseCategory =
   | 'breathing'       // Respiration (box breathing, cohérence cardiaque…)

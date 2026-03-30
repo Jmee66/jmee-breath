@@ -1,24 +1,27 @@
 import type { Phase, PhaseType } from '@core/types'
 
 const PHASE_COLORS: Record<PhaseType, string> = {
-  inhale:   'text-phase-inhale',
-  hold:     'text-phase-hold',
-  exhale:   'text-phase-exhale',
-  recovery: 'text-phase-recovery',
+  inhale:      'text-phase-inhale',
+  hold:        'text-phase-hold',
+  exhale:      'text-phase-exhale',
+  recovery:    'text-phase-recovery',
+  ventilation: 'text-phase-ventilation',
 }
 
 const PHASE_BG: Record<PhaseType, string> = {
-  inhale:   'bg-phase-inhale/10',
-  hold:     'bg-phase-hold/10',
-  exhale:   'bg-phase-exhale/10',
-  recovery: 'bg-phase-recovery/10',
+  inhale:      'bg-phase-inhale/10',
+  hold:        'bg-phase-hold/10',
+  exhale:      'bg-phase-exhale/10',
+  recovery:    'bg-phase-recovery/10',
+  ventilation: 'bg-phase-ventilation/10',
 }
 
 export const PHASE_LABELS: Record<PhaseType, string> = {
-  inhale:   '↑',
-  hold:     '⏸',
-  exhale:   '↓',
-  recovery: '○',
+  inhale:      '↑',
+  hold:        '⏸',
+  exhale:      '↓',
+  recovery:    '○',
+  ventilation: '≋',
 }
 
 interface Props {

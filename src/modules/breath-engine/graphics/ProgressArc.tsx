@@ -16,6 +16,7 @@ const PHASE_COLOR: Record<InternalPhaseType, string> = {
   exhale:       '#7561af',
   'hold-empty': '#7561af',
   recovery:     '#34d399',
+  ventilation:  '#2dd4bf',
 }
 
 /**

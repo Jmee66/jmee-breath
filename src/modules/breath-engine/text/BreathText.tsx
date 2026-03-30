@@ -8,6 +8,7 @@ const PHASE_LABELS: Record<InternalPhaseType, string> = {
   exhale:       'Expiration',
   'hold-empty': 'Rétention vide',
   recovery:     'Récupération',
+  ventilation:  'Ventilation',
 }
 
 const PHASE_COLOR: Record<InternalPhaseType, string> = {
@@ -17,6 +18,7 @@ const PHASE_COLOR: Record<InternalPhaseType, string> = {
   exhale:       '#7561af',
   'hold-empty': '#7561af',
   recovery:     '#34d399',
+  ventilation:  '#2dd4bf',
 }
 
 /**
@@ -32,6 +34,7 @@ export function BreathText() {
   const totalReps = useBreathStore((s) => s.totalReps)
   const isRunning = useBreathStore((s) => s.isRunning)
   const phaseDuration = useBreathStore((s) => s.currentPhaseDuration)
+  const phaseInstruction = useBreathStore((s) => s.phaseLabel)
 
   const phaseLabel = internalPhase ? PHASE_LABELS[internalPhase] : ''
   const phaseColor = internalPhase ? PHASE_COLOR[internalPhase] : 'var(--color-text-muted)'
@@ -54,6 +57,23 @@ export function BreathText() {
       >
         {phaseLabel}
       </p>
+
+      {/* Instruction personnalisée (phase.label) */}
+      {phaseInstruction && (
+        <p
+          style={{
+            fontSize: '0.85rem',
+            fontWeight: 400,
+            color: 'var(--color-text-secondary)',
+            margin: 0,
+            maxWidth: '260px',
+            textAlign: 'center',
+            lineHeight: 1.3,
+          }}
+        >
+          {phaseInstruction}
+        </p>
+      )}
 
       {/* Décompte */}
       <p

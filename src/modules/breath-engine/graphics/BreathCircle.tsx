@@ -14,6 +14,7 @@ const PHASE_CONFIG: Record<InternalPhaseType, PhaseConfig> = {
   exhale:       { scaleFrom: 1.0, scaleTo: 0.8, hex: '#7561af' },
   'hold-empty': { scaleFrom: 0.8, scaleTo: 0.8, hex: '#7561af' },
   recovery:     { scaleFrom: 0.8, scaleTo: 0.8, hex: '#34d399' },
+  ventilation:  { scaleFrom: 0.8, scaleTo: 0.9, hex: '#2dd4bf' },
 }
 
 // 189 * 0.9 = 170 — légèrement en retrait de l'arc à scale max

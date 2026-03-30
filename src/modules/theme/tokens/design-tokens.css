@@ -32,6 +32,7 @@
   --color-phase-exhale:      #a78bfa;  /* Mauve — expiration */
   --color-phase-hold-empty:  #a78bfa;  /* Mauve — rétention vide (même que exhale) */
   --color-phase-recovery:    #34d399;  /* Vert — récupération */
+  --color-phase-ventilation: #2dd4bf;  /* Teal — ventilation */
   --color-phase-hold:        #a78bfa;  /* Alias générique (compat event bus) */
 
   /* ── Status ───────────────────────────────────────────────────────────── */

@@ -31,6 +31,7 @@ const PHASE_CHORDS: Partial<Record<InternalPhaseType, number[]>> = {
   exhale:       [132.0, 176.2, 235.2],              // C3, F3, Bb3 — descend, se relâche
   'hold-empty': [132.0, 198.0, 296.4],              // C3, G3, D4  — quinte ouverte, aérien
   recovery:     [132.0, 176.2, 264.0],              // C3, F3, C4  — apaisement
+  ventilation:  [132.0, 198.0, 264.0],              // C3, G3, C4  — ouvert, dynamique
 }
 
 // Gain de crête par phase (normalisé — masterGain gère le volume global)
@@ -40,6 +41,7 @@ const PHASE_PEAK: Partial<Record<InternalPhaseType, number>> = {
   exhale:       0.111,
   'hold-empty': 0.082,  // plus doux que les autres mais clairement audible
   recovery:     0.085,
+  ventilation:  0.095,
 }
 
 // Gain relatif de chaque voix dans le pad (1ère = fondamentale, les suivantes s'atténuent)

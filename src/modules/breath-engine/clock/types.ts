@@ -8,6 +8,7 @@ export type InternalPhaseType =
   | 'hold-empty'   // rétention vide (poumons vides, après exhale)
   | 'exhale'
   | 'recovery'
+  | 'ventilation'
 
 /** Une phase pré-planifiée dans le timeline AudioContext */
 export interface ScheduledPhase {

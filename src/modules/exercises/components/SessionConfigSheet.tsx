@@ -10,24 +10,27 @@ import { useExerciseStore } from '../store/exerciseStore'
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const PHASE_NAMES: Record<PhaseType, string> = {
-  inhale:   'Inspiration',
-  hold:     'Rétention',
-  exhale:   'Expiration',
-  recovery: 'Pause',
+  inhale:      'Inspiration',
+  hold:        'Rétention',
+  exhale:      'Expiration',
+  recovery:    'Pause',
+  ventilation: 'Ventilation',
 }
 
 const PHASE_COLORS: Record<PhaseType, string> = {
-  inhale:   'text-phase-inhale',
-  hold:     'text-phase-hold',
-  exhale:   'text-phase-exhale',
-  recovery: 'text-phase-recovery',
+  inhale:      'text-phase-inhale',
+  hold:        'text-phase-hold',
+  exhale:      'text-phase-exhale',
+  recovery:    'text-phase-recovery',
+  ventilation: 'text-phase-ventilation',
 }
 
 const PHASE_ICONS: Record<PhaseType, string> = {
-  inhale:   '↑',
-  hold:     '⏸',
-  exhale:   '↓',
-  recovery: '○',
+  inhale:      '↑',
+  hold:        '⏸',
+  exhale:      '↓',
+  recovery:    '○',
+  ventilation: '≋',
 }
 
 const QUICK_DURATIONS = [4, 5.5, 6]

@@ -16,9 +16,11 @@ interface BreathState {
   sessionId: string | null
   totalReps: number
   currentPhaseDuration: number
+  /** Instruction personnalisée de la phase courante (phase.label) */
+  phaseLabel: string | null
 
   /** Met à jour phase + internalPhase + duration en un seul set() atomique */
-  setPhaseComplete: (phase: PhaseType, internalPhase: InternalPhaseType, duration: number) => void
+  setPhaseComplete: (phase: PhaseType, internalPhase: InternalPhaseType, duration: number, label?: string) => void
   setPhase: (phase: PhaseType, duration: number) => void
   setPhaseInternal: (phase: InternalPhaseType) => void
   setProgress: (progress: number) => void
@@ -41,9 +43,10 @@ export const useBreathStore = create<BreathState>((set) => ({
   sessionId: null,
   totalReps: 0,
   currentPhaseDuration: 0,
+  phaseLabel: null,
 
-  setPhaseComplete: (phase, internalPhase, currentPhaseDuration) =>
-    set({ phase, internalPhase, currentPhaseDuration, phaseProgress: 0 }),
+  setPhaseComplete: (phase, internalPhase, currentPhaseDuration, label) =>
+    set({ phase, internalPhase, currentPhaseDuration, phaseLabel: label ?? null, phaseProgress: 0 }),
   setPhase: (phase, currentPhaseDuration) => set({ phase, currentPhaseDuration, phaseProgress: 0 }),
   setPhaseInternal: (internalPhase) => set({ internalPhase }),
   setProgress: (phaseProgress) => set({ phaseProgress }),
@@ -62,5 +65,6 @@ export const useBreathStore = create<BreathState>((set) => ({
       sessionId: null,
       phaseProgress: 0,
       remainingSeconds: 0,
+      phaseLabel: null,
     }),
 }))

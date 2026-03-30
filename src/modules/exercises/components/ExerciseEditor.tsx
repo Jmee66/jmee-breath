@@ -1,14 +1,15 @@
 import { useState, useRef } from 'react'
-import { Plus, Minus, Save, X, GripVertical, Ratio } from 'lucide-react'
+import { Plus, Minus, Save, X, GripVertical, Ratio, MessageSquare } from 'lucide-react'
 import type { Exercise, Phase, PhaseType, ExerciseCategory, DifficultyLevel } from '@core/types'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const PHASE_OPTIONS: { value: PhaseType; label: string; color: string }[] = [
-  { value: 'inhale',   label: 'Inspiration', color: 'text-phase-inhale' },
-  { value: 'hold',     label: 'Rétention',   color: 'text-phase-hold' },
-  { value: 'exhale',   label: 'Expiration',  color: 'text-phase-exhale' },
-  { value: 'recovery', label: 'Récupération',color: 'text-phase-recovery' },
+  { value: 'inhale',      label: 'Inspiration',  color: 'text-phase-inhale' },
+  { value: 'hold',        label: 'Rétention',    color: 'text-phase-hold' },
+  { value: 'exhale',      label: 'Expiration',   color: 'text-phase-exhale' },
+  { value: 'recovery',    label: 'Récupération', color: 'text-phase-recovery' },
+  { value: 'ventilation', label: 'Ventilation',  color: 'text-phase-ventilation' },
 ]
 
 const CATEGORY_OPTIONS: { value: ExerciseCategory; label: string }[] = [
@@ -97,66 +98,97 @@ interface PhaseRowProps {
 
 function PhaseRow({ phase, index, onChange, onRemove, canRemove, locked }: PhaseRowProps) {
   const colorClass = PHASE_OPTIONS.find((p) => p.value === phase.type)?.color ?? ''
+  const [showLabel, setShowLabel] = useState(!!phase.label)
 
   return (
-    <div className={`flex items-center gap-2 rounded-xl p-3 ${locked ? 'bg-bg-overlay/60' : 'bg-bg-elevated'}`}>
-      {/* Drag handle placeholder */}
-      <GripVertical size={14} className="text-white/85 flex-shrink-0" />
+    <div className={`rounded-xl ${locked ? 'bg-bg-overlay/60' : 'bg-bg-elevated'}`}>
+      <div className="flex items-center gap-2 p-3">
+        {/* Drag handle placeholder */}
+        <GripVertical size={14} className="text-white/85 flex-shrink-0" />
 
-      {/* Phase type select */}
-      <select
-        value={phase.type}
-        onChange={(e) => onChange(index, { ...phase, type: e.target.value as PhaseType })}
-        className={`flex-1 min-w-0 bg-transparent text-xs font-medium border-none outline-none ${colorClass}`}
-      >
-        {PHASE_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value} className="bg-bg-elevated text-text-primary">
-            {opt.label}
-          </option>
-        ))}
-      </select>
+        {/* Phase type select */}
+        <select
+          value={phase.type}
+          onChange={(e) => onChange(index, { ...phase, type: e.target.value as PhaseType })}
+          className={`flex-1 min-w-0 bg-transparent text-xs font-medium border-none outline-none ${colorClass}`}
+        >
+          {PHASE_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value} className="bg-bg-elevated text-text-primary">
+              {opt.label}
+            </option>
+          ))}
+        </select>
 
-      {/* Duration stepper */}
-      <div className="flex items-center gap-1.5">
-        {!locked && (
-          <button
-            onClick={() => onChange(index, { ...phase, durationSeconds: clamp(phase.durationSeconds - 0.5, 0.5, 300) })}
-            className="flex h-9 w-9 items-center justify-center rounded-lg bg-bg-overlay text-white/85 hover:bg-bg-overlay/80 active:scale-95 transition-transform"
-          >
-            <Minus size={13} />
-          </button>
-        )}
+        {/* Instruction toggle */}
+        <button
+          onClick={() => {
+            const next = !showLabel
+            setShowLabel(next)
+            if (!next) onChange(index, { ...phase, label: undefined })
+          }}
+          className={`flex-shrink-0 p-1 rounded-md transition-colors ${
+            showLabel ? 'text-accent' : 'text-white/30 hover:text-white/60'
+          }`}
+          title="Instruction"
+        >
+          <MessageSquare size={13} />
+        </button>
 
-        {locked ? (
-          <div className="w-12 flex items-baseline justify-center gap-px">
-            <span className="text-xs font-mono text-white/50">{phase.durationSeconds % 1 === 0 ? phase.durationSeconds : phase.durationSeconds.toFixed(1)}</span>
-            <span className="text-xs font-mono text-white/30">s</span>
-          </div>
-        ) : (
-          <DurationInput
-            value={phase.durationSeconds}
-            onChange={(v) => onChange(index, { ...phase, durationSeconds: v })}
-          />
-        )}
+        {/* Duration stepper */}
+        <div className="flex items-center gap-1.5">
+          {!locked && (
+            <button
+              onClick={() => onChange(index, { ...phase, durationSeconds: clamp(phase.durationSeconds - 0.5, 0.5, 300) })}
+              className="flex h-9 w-9 items-center justify-center rounded-lg bg-bg-overlay text-white/85 hover:bg-bg-overlay/80 active:scale-95 transition-transform"
+            >
+              <Minus size={13} />
+            </button>
+          )}
 
-        {!locked && (
-          <button
-            onClick={() => onChange(index, { ...phase, durationSeconds: clamp(phase.durationSeconds + 0.5, 0.5, 300) })}
-            className="flex h-9 w-9 items-center justify-center rounded-lg bg-bg-overlay text-white/85 hover:bg-bg-overlay/80 active:scale-95 transition-transform"
-          >
-            <Plus size={13} />
-          </button>
-        )}
+          {locked ? (
+            <div className="w-12 flex items-baseline justify-center gap-px">
+              <span className="text-xs font-mono text-white/50">{phase.durationSeconds % 1 === 0 ? phase.durationSeconds : phase.durationSeconds.toFixed(1)}</span>
+              <span className="text-xs font-mono text-white/30">s</span>
+            </div>
+          ) : (
+            <DurationInput
+              value={phase.durationSeconds}
+              onChange={(v) => onChange(index, { ...phase, durationSeconds: v })}
+            />
+          )}
+
+          {!locked && (
+            <button
+              onClick={() => onChange(index, { ...phase, durationSeconds: clamp(phase.durationSeconds + 0.5, 0.5, 300) })}
+              className="flex h-9 w-9 items-center justify-center rounded-lg bg-bg-overlay text-white/85 hover:bg-bg-overlay/80 active:scale-95 transition-transform"
+            >
+              <Plus size={13} />
+            </button>
+          )}
+        </div>
+
+        {/* Remove */}
+        <button
+          onClick={() => onRemove(index)}
+          disabled={!canRemove}
+          className="flex-shrink-0 p-1 rounded-md text-white/85 disabled:opacity-30 hover:text-status-error transition-colors"
+        >
+          <X size={13} />
+        </button>
       </div>
 
-      {/* Remove */}
-      <button
-        onClick={() => onRemove(index)}
-        disabled={!canRemove}
-        className="flex-shrink-0 p-1 rounded-md text-white/85 disabled:opacity-30 hover:text-status-error transition-colors"
-      >
-        <X size={13} />
-      </button>
+      {/* Instruction input */}
+      {showLabel && (
+        <div className="px-3 pb-3">
+          <input
+            type="text"
+            value={phase.label ?? ''}
+            onChange={(e) => onChange(index, { ...phase, label: e.target.value || undefined })}
+            placeholder="Instruction (ex: Relâche tout, Gonfle le ventre…)"
+            className="w-full rounded-lg bg-bg-overlay px-3 py-2 text-xs text-text-primary placeholder:text-white/30 border border-border focus:border-accent focus:outline-none transition-colors"
+          />
+        </div>
+      )}
     </div>
   )
 }

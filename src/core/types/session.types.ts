@@ -30,7 +30,7 @@ export interface Session {
 export interface FreeTimerSession {
   id: string
   startedAt: string
-  completedAt: string
+  completedAt: string | null
   durationSeconds: number
   laps: number[]
   notes: string

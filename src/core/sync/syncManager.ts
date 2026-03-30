@@ -4,6 +4,7 @@ import { eventBus } from '../events/eventBus'
 import type { Exercise, Session, FreeTimerSession } from '../types'
 import type { CustomWarmup } from '@modules/free-timer/types'
 import type { ApneaTable } from '@modules/apnea-tables/types'
+import { enqueuePreferencesNow } from './preferencesSync'
 
 const MAX_RETRIES = 5
 const BATCH_SIZE = 50
@@ -48,23 +49,47 @@ class SyncManager {
   /** Abonnement Realtime Supabase — les tables créées sur d'autres appareils arrivent automatiquement. */
   private subscribeRealtime(userId: string): void {
     this.unsubscribeRealtime()
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const handleRealtimeEvent = (table: string, mapper: (r: any) => any, dbTable: any) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      async (payload: any) => {
+        try {
+          if (payload.eventType === 'DELETE') {
+            if (payload.old?.id) {
+              await dbTable.delete(payload.old.id as string)
+              eventBus.emit('SYNC_COMPLETED', { table, pushed: 0, pulled: 1 })
+            }
+          } else if (payload.new) {
+            await dbTable.put(mapper(payload.new))
+            eventBus.emit('SYNC_COMPLETED', { table, pushed: 0, pulled: 1 })
+          }
+        } catch {
+          // Silencieux — sera rattrapé au prochain pull
+        }
+      }
+
     this.realtimeChannel = supabase
-      .channel(`apnea-tables-${userId}`)
+      .channel(`sync-${userId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'apnea_tables', filter: `user_id=eq.${userId}` },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        async (payload: any) => {
-          if (payload.eventType === 'DELETE') {
-            if (payload.old?.id) {
-              await db.apneaTables.delete(payload.old.id as string)
-              eventBus.emit('SYNC_COMPLETED', { table: 'apnea_tables', pushed: 0, pulled: 1 })
-            }
-          } else if (payload.new) {
-            await db.apneaTables.put(mapRemoteApneaTable(payload.new))
-            eventBus.emit('SYNC_COMPLETED', { table: 'apnea_tables', pushed: 0, pulled: 1 })
-          }
-        },
+        handleRealtimeEvent('apnea_tables', mapRemoteApneaTable, db.apneaTables),
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'exercises', filter: `user_id=eq.${userId}` },
+        handleRealtimeEvent('exercises', mapRemoteExercise, db.exercises),
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'custom_warmups', filter: `user_id=eq.${userId}` },
+        handleRealtimeEvent('custom_warmups', mapRemoteCustomWarmup, db.customWarmups),
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'sessions', filter: `user_id=eq.${userId}` },
+        handleRealtimeEvent('sessions', mapRemoteSession, db.sessions),
       )
       .subscribe()
   }
@@ -171,68 +196,95 @@ class SyncManager {
   async pull(): Promise<void> {
     if (!this.userId) return
 
-    // Pull sessions
-    const lastSession = await db.sessions.orderBy('completedAt').last()
-    const sessionQuery = lastSession
-      ? supabase.from('sessions').select('*').eq('user_id', this.userId).gt('completed_at', lastSession.completedAt)
-      : supabase.from('sessions').select('*').eq('user_id', this.userId)
-
-    const { data: remoteSessions } = await sessionQuery
-    if (remoteSessions?.length) {
-      for (const s of remoteSessions) {
-        await db.sessions.put(mapRemoteSession(s))
+    // Helper — pull sécurisé avec try/catch par table
+    const safePull = async (table: string, fn: () => Promise<void>) => {
+      try {
+        await fn()
+      } catch (err) {
+        eventBus.emit('SYNC_FAILED', { table, error: err instanceof Error ? err.message : String(err) })
       }
-      eventBus.emit('SYNC_COMPLETED', { table: 'sessions', pushed: 0, pulled: remoteSessions.length })
     }
+
+    // Pull sessions
+    await safePull('sessions', async () => {
+      const lastSession = await db.sessions.orderBy('completedAt').last()
+      const sessionQuery = lastSession
+        ? supabase.from('sessions').select('*').eq('user_id', this.userId!).gte('completed_at', lastSession.completedAt)
+        : supabase.from('sessions').select('*').eq('user_id', this.userId!)
+
+      const { data, error } = await sessionQuery
+      if (error) throw error
+      if (data?.length) {
+        for (const s of data) {
+          await db.sessions.put(mapRemoteSession(s))
+        }
+        eventBus.emit('SYNC_COMPLETED', { table: 'sessions', pushed: 0, pulled: data.length })
+      }
+    })
 
     // Pull exercices custom (is_preset = false)
-    const { data: remoteExercises } = await supabase
-      .from('exercises').select('*').eq('user_id', this.userId).eq('is_preset', false)
-    if (remoteExercises?.length) {
-      for (const e of remoteExercises) {
-        const local = await db.exercises.get(e.id)
-        if (!local || new Date(e.updated_at) > new Date(local.updatedAt)) {
-          await db.exercises.put(mapRemoteExercise(e))
+    await safePull('exercises', async () => {
+      const { data, error } = await supabase
+        .from('exercises').select('*').eq('user_id', this.userId!).eq('is_preset', false)
+      if (error) throw error
+      if (data?.length) {
+        for (const e of data) {
+          const local = await db.exercises.get(e.id)
+          if (!local || new Date(e.updated_at) > new Date(local.updatedAt)) {
+            await db.exercises.put(mapRemoteExercise(e))
+          }
         }
+        eventBus.emit('SYNC_COMPLETED', { table: 'exercises', pushed: 0, pulled: data.length })
       }
-      eventBus.emit('SYNC_COMPLETED', { table: 'exercises', pushed: 0, pulled: remoteExercises.length })
-    }
+    })
 
     // Pull free timer sessions
-    const lastFts = await db.freeTimerSessions.orderBy('startedAt').last()
-    const ftsQuery = lastFts
-      ? supabase.from('free_timer_sessions').select('*').eq('user_id', this.userId).gt('started_at', lastFts.startedAt)
-      : supabase.from('free_timer_sessions').select('*').eq('user_id', this.userId)
-    const { data: remoteFts } = await ftsQuery
-    if (remoteFts?.length) {
-      for (const s of remoteFts) {
-        await db.freeTimerSessions.put(mapRemoteFreeTimerSession(s))
-      }
-      eventBus.emit('SYNC_COMPLETED', { table: 'free_timer_sessions', pushed: 0, pulled: remoteFts.length })
-    }
-
-    // Pull custom warmups
-    const { data: remoteWarmups } = await supabase
-      .from('custom_warmups').select('*').eq('user_id', this.userId)
-    if (remoteWarmups?.length) {
-      for (const w of remoteWarmups) {
-        await db.customWarmups.put(mapRemoteCustomWarmup(w))
-      }
-      eventBus.emit('SYNC_COMPLETED', { table: 'custom_warmups', pushed: 0, pulled: remoteWarmups.length })
-    }
-
-    // Pull apnea tables
-    const { data: remoteTables } = await supabase
-      .from('apnea_tables').select('*').eq('user_id', this.userId)
-    if (remoteTables?.length) {
-      for (const t of remoteTables) {
-        const local = await db.apneaTables.get(t.id)
-        if (!local || new Date(t.updated_at) > new Date(local.updatedAt)) {
-          await db.apneaTables.put(mapRemoteApneaTable(t))
+    await safePull('free_timer_sessions', async () => {
+      const lastFts = await db.freeTimerSessions.orderBy('startedAt').last()
+      const ftsQuery = lastFts
+        ? supabase.from('free_timer_sessions').select('*').eq('user_id', this.userId!).gte('started_at', lastFts.startedAt)
+        : supabase.from('free_timer_sessions').select('*').eq('user_id', this.userId!)
+      const { data, error } = await ftsQuery
+      if (error) throw error
+      if (data?.length) {
+        for (const s of data) {
+          await db.freeTimerSessions.put(mapRemoteFreeTimerSession(s))
         }
+        eventBus.emit('SYNC_COMPLETED', { table: 'free_timer_sessions', pushed: 0, pulled: data.length })
       }
-      eventBus.emit('SYNC_COMPLETED', { table: 'apnea_tables', pushed: 0, pulled: remoteTables.length })
-    }
+    })
+
+    // Pull custom warmups (avec conflit résolu par updated_at)
+    await safePull('custom_warmups', async () => {
+      const { data, error } = await supabase
+        .from('custom_warmups').select('*').eq('user_id', this.userId!)
+      if (error) throw error
+      if (data?.length) {
+        for (const w of data) {
+          const local = await db.customWarmups.get(w.id)
+          if (!local || new Date(w.updated_at) > new Date(local.updatedAt)) {
+            await db.customWarmups.put(mapRemoteCustomWarmup(w))
+          }
+        }
+        eventBus.emit('SYNC_COMPLETED', { table: 'custom_warmups', pushed: 0, pulled: data.length })
+      }
+    })
+
+    // Pull apnea tables (avec conflit résolu par updated_at)
+    await safePull('apnea_tables', async () => {
+      const { data, error } = await supabase
+        .from('apnea_tables').select('*').eq('user_id', this.userId!)
+      if (error) throw error
+      if (data?.length) {
+        for (const t of data) {
+          const local = await db.apneaTables.get(t.id)
+          if (!local || new Date(t.updated_at) > new Date(local.updatedAt)) {
+            await db.apneaTables.put(mapRemoteApneaTable(t))
+          }
+        }
+        eventBus.emit('SYNC_COMPLETED', { table: 'apnea_tables', pushed: 0, pulled: data.length })
+      }
+    })
   }
 
   /**
@@ -280,8 +332,8 @@ class SyncManager {
       }
     }
 
-    // ── 4. Push préférences ─────────────────────────────────────────────────
-    //    (déjà géré par usePreferencesSync, on flush juste la queue)
+    // ── 4. Push préférences (enqueue explicite + flush) ─────────────────────
+    enqueuePreferencesNow(uid)
     await this.flush()
 
     // ── 5. Pull complet exercices (sans filtre de date) ─────────────────────

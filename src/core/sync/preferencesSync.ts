@@ -2,7 +2,7 @@
  * preferencesSync — synchronisation bidirectionnelle des préférences utilisateur.
  *
  * Données synchronisées (table Supabase : user_preferences) :
- *  · Son    : soundStore, droneStore, riverStore
+ *  · Son    : soundStore, droneStore, riverStore, windStore
  *  · Voix   : voiceGuideStore
  *  · Réglages utilisateur : settingsStore (favoris, thème, langue, hiddenPresets…)
  *
@@ -20,11 +20,19 @@ import { useSoundStore } from '@modules/breath-engine/sounds/soundStore'
 import { useDroneStore } from '@modules/breath-engine/sounds/droneStore'
 import { useRiverStore } from '@modules/breath-engine/sounds/riverStore'
 import { useVoiceGuideStore } from '@modules/breath-engine/voice/voiceGuideStore'
+import { useWindStore } from '@modules/breath-engine/sounds/windStore'
 import { useSettingsStore } from '@modules/settings/store/settingsStore'
 import type { UserSettings } from '@core/types'
 import type { SoundSet } from '@modules/breath-engine/sounds/soundTypes'
 
 // ── Types payload ─────────────────────────────────────────────────────────────
+
+interface WindPrefs {
+  windEnabled:       boolean
+  windVolume:        number
+  windBreathInhaleS: number
+  windBreathExhaleS: number
+}
 
 interface SoundPrefs {
   soundEnabled: boolean
@@ -47,6 +55,7 @@ interface VoicePrefs {
 interface UserPreferencesRow {
   user_id:    string
   sound:      SoundPrefs
+  wind?:      WindPrefs
   voice:      VoicePrefs
   settings:   UserSettings
   updated_at: string
@@ -59,6 +68,7 @@ function buildPayload(userId: string): UserPreferencesRow {
   const snd = useSoundStore.getState()
   const drn = useDroneStore.getState()
   const rvr = useRiverStore.getState()
+  const wnd = useWindStore.getState()
   const vce = useVoiceGuideStore.getState()
   const stg = useSettingsStore.getState()
 
@@ -73,6 +83,12 @@ function buildPayload(userId: string): UserPreferencesRow {
       droneVolume:  drn.droneVolume,
       riverEnabled: rvr.riverEnabled,
       riverVolume:  rvr.riverVolume,
+    },
+    wind: {
+      windEnabled:       wnd.windEnabled,
+      windVolume:        wnd.windVolume,
+      windBreathInhaleS: wnd.windBreathInhaleS,
+      windBreathExhaleS: wnd.windBreathExhaleS,
     },
     voice: {
       voiceEnabled: vce.voiceEnabled,
@@ -101,6 +117,17 @@ async function applyRemotePreferences(row: UserPreferencesRow): Promise<void> {
     })
     useDroneStore.setState({ droneEnabled: s.droneEnabled, droneVolume: s.droneVolume })
     useRiverStore.setState({ riverEnabled: s.riverEnabled, riverVolume: s.riverVolume })
+  }
+
+  // ── Souffle (wind) ─────────────────────────────────────────────────────────
+  if (row.wind) {
+    const w = row.wind
+    useWindStore.setState({
+      windEnabled:       w.windEnabled,
+      windVolume:        w.windVolume,
+      windBreathInhaleS: w.windBreathInhaleS,
+      windBreathExhaleS: w.windBreathExhaleS,
+    })
   }
 
   // ── Voix ─────────────────────────────────────────────────────────────────
@@ -148,6 +175,17 @@ async function pullAndApply(userId: string): Promise<void> {
  * · Debounce 1,5 s → enqueue dans SyncManager (push offline-first).
  * · Pull au login et au retour au premier plan.
  */
+/** Force l'enqueue des préférences (appelé par forceSync). */
+export function enqueuePreferencesNow(userId: string): void {
+  void syncManager.enqueue({
+    table:     'user_preferences',
+    operation: 'upsert',
+    recordId:  userId,
+    payload:   buildPayload(userId),
+    createdAt: new Date().toISOString(),
+  })
+}
+
 export function usePreferencesSync(): void {
   const userId    = useAuthStore((s) => s.user?.id ?? null)
   const userIdRef = useRef<string | null>(null)
@@ -181,6 +219,7 @@ export function usePreferencesSync(): void {
       useSoundStore.subscribe(scheduleSync),
       useDroneStore.subscribe(scheduleSync),
       useRiverStore.subscribe(scheduleSync),
+      useWindStore.subscribe(scheduleSync),
       useVoiceGuideStore.subscribe(scheduleSync),
       useSettingsStore.subscribe(scheduleSync),
     ]

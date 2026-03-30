@@ -18,6 +18,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Play, Square, RotateCcw, Wind, CheckCircle2, SkipForward, Pencil, Check, Flag, Plus, Trash2, Heart } from 'lucide-react'
+import { uuid } from '@core/utils/uuid'
 import { PageContainer } from '@modules/theme'
 import { useSettingsStore } from '@modules/settings'
 import { useVoiceGuideStore, useSoundStore, useDroneStore, BreathCircle, useBreathStore, BreathClock } from '@modules/breath-engine'
@@ -1025,7 +1026,7 @@ export function FreeTimerPage() {
           onSave={async (data) => {
             const now = new Date().toISOString()
             const warmup: CustomWarmup = {
-              id:        editingWarmup?.id ?? crypto.randomUUID(),
+              id:        editingWarmup?.id ?? uuid(),
               createdAt: editingWarmup?.createdAt ?? now,
               updatedAt: now,
               syncedAt:  null,

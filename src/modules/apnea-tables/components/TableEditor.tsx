@@ -628,7 +628,9 @@ function PhaseItemCard({
   const cfg = CUSTOM_PHASE_CONFIG[item.phaseType]
 
   function copyDuration() {
-    void navigator.clipboard.writeText(String(item.durationS))
+    if (navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(String(item.durationS)).catch(() => {})
+    }
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }

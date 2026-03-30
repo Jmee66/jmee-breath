@@ -1,6 +1,7 @@
 import { db } from '@core/db/apneaDb'
 import { syncManager } from '@core/sync/syncManager'
 import { useAuthStore } from '@modules/auth/store/authStore'
+import { uuid } from '@core/utils/uuid'
 import type { ApneaTable } from '../types'
 
 function toSupabasePayload(t: ApneaTable, userId: string): Record<string, unknown> {
@@ -33,7 +34,7 @@ export const tableWriter = {
     const now = new Date().toISOString()
     const table: ApneaTable = {
       ...data,
-      id:        existingId ?? crypto.randomUUID(),
+      id:        existingId ?? uuid(),
       createdAt: existingId ? ((await db.apneaTables.get(existingId))?.createdAt ?? now) : now,
       updatedAt: now,
       syncedAt:  null,

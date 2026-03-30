@@ -1,4 +1,5 @@
 import { useRef, useCallback, useEffect } from 'react'
+import { uuid } from '@core/utils/uuid'
 import { useBreathStore } from '../store/breathStore'
 import { BreathClock } from '../clock/BreathClock'
 import { useSoundStore } from '../sounds/soundStore'
@@ -142,7 +143,7 @@ export function useBreathSession() {
     clockRef.current?.stop()
 
     exerciseRef.current = exercise
-    const sessionId = crypto.randomUUID()
+    const sessionId = uuid()
     sessionIdRef.current = sessionId
 
     // Lit les préférences au moment du démarrage (snapshot, pas de subscription)

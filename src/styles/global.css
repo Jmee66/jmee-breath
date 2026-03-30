@@ -98,6 +98,15 @@
     border-color: var(--color-border-subtle);
   }
 
+  /* Masquer les scrollbars — cross-platform */
+  .scrollbar-none {
+    -ms-overflow-style: none;        /* IE / Edge */
+    scrollbar-width: none;            /* Firefox */
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;                    /* Chrome / Safari / Android */
+  }
+
   /* Glass effect léger */
   .glass {
     background: rgba(15, 22, 40, 0.8);

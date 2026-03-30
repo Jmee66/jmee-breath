@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Plus, X } from 'lucide-react'
+import { uuid } from '@core/utils/uuid'
 import { PageContainer } from '@modules/theme'
 import { useExerciseStore } from '../store/exerciseStore'
 import { useSettingsStore } from '@modules/settings'
@@ -60,7 +61,7 @@ export function ExercisesPage() {
     const exercise: Exercise = {
       ...data,
       isPreset: false,
-      id: (!isEditingPreset && editingExercise?.id) ? editingExercise.id : `custom-${crypto.randomUUID()}`,
+      id: (!isEditingPreset && editingExercise?.id) ? editingExercise.id : `custom-${uuid()}`,
       createdAt: (!isEditingPreset && editingExercise?.createdAt) ? editingExercise.createdAt : now,
       updatedAt: now,
     }

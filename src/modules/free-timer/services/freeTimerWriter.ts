@@ -1,6 +1,7 @@
 import { db } from '@core/db'
 import { syncManager } from '@core/sync'
 import { useAuthStore } from '@modules/auth/store/authStore'
+import { uuid } from '@core/utils/uuid'
 import type { FreeTimerSession } from '@core/types'
 import { useFreeTimerStore } from '../store/freeTimerStore'
 
@@ -12,7 +13,7 @@ export async function saveFreeTimerSession(
   mode:            'apnea' | 'free' = 'apnea',
 ): Promise<FreeTimerSession> {
   const session: FreeTimerSession = {
-    id:              crypto.randomUUID(),
+    id:              uuid(),
     startedAt,
     completedAt:     new Date().toISOString(),
     durationSeconds,

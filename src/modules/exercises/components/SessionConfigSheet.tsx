@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Play, Minus, Plus, Save, Check } from 'lucide-react'
+import { uuid } from '@core/utils/uuid'
 import type { Exercise, Phase, PhaseType, ExercisePreset } from '@core/types'
 import { calcExerciseDuration } from '@core/types'
 import { saveExercise, getAllExercises } from '../services/exerciseRepository'
@@ -129,7 +130,7 @@ export function SessionConfigSheet({ exercise, onClose, onStart }: SessionConfig
 
   async function handleSavePreset() {
     const newPreset: ExercisePreset = {
-      id: crypto.randomUUID(),
+      id: uuid(),
       name: presetName.trim(),
       phases: effectivePhases,
       repetitions,

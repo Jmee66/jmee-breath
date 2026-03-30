@@ -10,6 +10,7 @@
 
 import { useState } from 'react'
 import { Plus, X, Save, ChevronDown, ChevronUp, Timer, ArrowDown } from 'lucide-react'
+import { uuid } from '@core/utils/uuid'
 import type { CustomWarmup, CustomWarmupStep, CustomCycle, WarmupBreathPattern, WarmupStepType, ExerciseCategory } from '../types'
 
 const CATEGORY_OPTIONS: { value: ExerciseCategory; label: string }[] = [
@@ -452,7 +453,7 @@ export function CustomWarmupEditor({ initialWarmup, onSave, onCancel }: CustomWa
   const [steps, setSteps] = useState<CustomWarmupStep[]>(
     initialWarmup?.steps ?? [
       {
-        id:          crypto.randomUUID(),
+        id:          uuid(),
         mode:        'ratio',
         pattern:     '6-6-12',
         durationS:   72,
@@ -476,7 +477,7 @@ export function CustomWarmupEditor({ initialWarmup, onSave, onCancel }: CustomWa
     setSteps((prev) => [
       ...prev,
       {
-        id:          crypto.randomUUID(),
+        id:          uuid(),
         mode:        'ratio',
         pattern:     'soupir',
         durationS:   60,

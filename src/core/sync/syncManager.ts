@@ -294,15 +294,16 @@ class SyncManager {
    * 2. Pull : récupère tout depuis Supabase (sans filtre de date)
    * 3. Émet SYNC_COMPLETED pour chaque table touchée
    */
-  async forceSync(): Promise<{ pushed: number; pulled: number }> {
+  async forceSync(): Promise<{ pushed: number; pulled: number; details: string[] }> {
     if (!this.userId) {
       console.warn('[sync] forceSync called but no userId')
-      return { pushed: 0, pulled: 0 }
+      return { pushed: 0, pulled: 0, details: ['Pas connecté'] }
     }
     const uid = this.userId
     console.log('[sync] forceSync start — userId:', uid)
     let pushed = 0
     let pulled = 0
+    const details: string[] = []
 
     // ── 1. Push exercices custom ────────────────────────────────────────────
     const localExercises = await db.exercises.filter((e) => !e.isPreset).toArray()
@@ -310,8 +311,8 @@ class SyncManager {
     if (localExercises.length) {
       const payloads = localExercises.map((e) => exerciseToSupabase(e, uid))
       const { error } = await supabase.from('exercises').upsert(payloads)
-      if (error) console.error('[sync] push exercises ERROR:', error.message)
-      else pushed += localExercises.length
+      if (error) { console.error('[sync] push exercises ERROR:', error.message); details.push(`Ex push ERR: ${error.message}`) }
+      else { pushed += localExercises.length; details.push(`Ex push: ${localExercises.length}`) }
     }
 
     // ── 2. Push sessions ────────────────────────────────────────────────────
@@ -320,7 +321,7 @@ class SyncManager {
     if (localSessions.length) {
       const payloads = localSessions.map((s) => sessionToSupabase(s, uid))
       const { error } = await supabase.from('sessions').upsert(payloads)
-      if (error) console.error('[sync] push sessions ERROR:', error.message)
+      if (error) { console.error('[sync] push sessions ERROR:', error.message); details.push(`Sess push ERR: ${error.message}`) }
       else {
         pushed += localSessions.length
         await db.sessions.toCollection().modify({ syncedAt: new Date().toISOString() })
@@ -333,7 +334,7 @@ class SyncManager {
     if (localFts.length) {
       const payloads = localFts.map((s) => ftsToSupabase(s, uid))
       const { error } = await supabase.from('free_timer_sessions').upsert(payloads)
-      if (error) console.error('[sync] push fts ERROR:', error.message)
+      if (error) { console.error('[sync] push fts ERROR:', error.message); details.push(`FTS push ERR: ${error.message}`) }
       else {
         pushed += localFts.length
         await db.freeTimerSessions.toCollection().modify({ syncedAt: new Date().toISOString() })
@@ -348,6 +349,8 @@ class SyncManager {
     const { data: remoteEx, error: exErr } = await supabase
       .from('exercises').select('*').eq('user_id', uid).eq('is_preset', false)
     console.log('[sync] pull exercises:', remoteEx?.length ?? 0, exErr?.message ?? 'OK')
+    if (exErr) details.push(`Ex pull ERR: ${exErr.message}`)
+    else if (remoteEx?.length) details.push(`Ex pull: ${remoteEx.length}`)
     if (remoteEx?.length) {
       for (const e of remoteEx) {
         const local = await db.exercises.get(e.id)
@@ -389,7 +392,7 @@ class SyncManager {
     if (localWarmups.length) {
       const payloads = localWarmups.map((w) => customWarmupToSupabase(w, uid))
       const { error } = await supabase.from('custom_warmups').upsert(payloads)
-      if (error) console.error('[sync] push warmups ERROR:', error.message)
+      if (error) { console.error('[sync] push warmups ERROR:', error.message); details.push(`Warmup push ERR: ${error.message}`) }
       else {
         pushed += localWarmups.length
         await db.customWarmups.toCollection().modify({ syncedAt: new Date().toISOString() })
@@ -400,6 +403,8 @@ class SyncManager {
     const { data: remoteWarmups, error: wErr } = await supabase
       .from('custom_warmups').select('*').eq('user_id', uid)
     console.log('[sync] pull warmups:', remoteWarmups?.length ?? 0, wErr?.message ?? 'OK')
+    if (wErr) details.push(`Warmup pull ERR: ${wErr.message}`)
+    else if (remoteWarmups?.length) details.push(`Warmup pull: ${remoteWarmups.length}`)
     if (remoteWarmups?.length) {
       for (const w of remoteWarmups) {
         await db.customWarmups.put(mapRemoteCustomWarmup(w))
@@ -414,7 +419,7 @@ class SyncManager {
     if (localTables.length) {
       const payloads = localTables.map((t) => apneaTableToSupabase(t, uid))
       const { error } = await supabase.from('apnea_tables').upsert(payloads)
-      if (error) console.error('[sync] push tables ERROR:', error.message)
+      if (error) { console.error('[sync] push tables ERROR:', error.message); details.push(`Tables push ERR: ${error.message}`) }
       else {
         pushed += localTables.length
         await db.apneaTables.toCollection().modify({ syncedAt: new Date().toISOString() })
@@ -425,6 +430,8 @@ class SyncManager {
     const { data: remoteTables, error: tErr } = await supabase
       .from('apnea_tables').select('*').eq('user_id', uid)
     console.log('[sync] pull tables:', remoteTables?.length ?? 0, tErr?.message ?? 'OK')
+    if (tErr) details.push(`Tables pull ERR: ${tErr.message}`)
+    else if (remoteTables?.length) details.push(`Tables pull: ${remoteTables.length}`)
     if (remoteTables?.length) {
       for (const t of remoteTables) {
         const local = await db.apneaTables.get(t.id)
@@ -436,8 +443,8 @@ class SyncManager {
       eventBus.emit('SYNC_COMPLETED', { table: 'apnea_tables', pushed: 0, pulled: remoteTables.length })
     }
 
-    console.log('[sync] forceSync done — pushed:', pushed, 'pulled:', pulled)
-    return { pushed, pulled }
+    console.log('[sync] forceSync done — pushed:', pushed, 'pulled:', pulled, 'details:', details)
+    return { pushed, pulled, details }
   }
 }
 

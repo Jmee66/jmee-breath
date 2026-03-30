@@ -138,7 +138,7 @@ export default function SettingsPageRoute() {
 
   // Sync forcée
   const [syncStatus,  setSyncStatus]  = useState<SyncStatus>('idle')
-  const [syncResult,  setSyncResult]  = useState<{ pushed: number; pulled: number } | null>(null)
+  const [syncResult,  setSyncResult]  = useState<{ pushed: number; pulled: number; details?: string[] } | null>(null)
 
   const handleForceSync = async () => {
     setSyncStatus('syncing')
@@ -150,7 +150,7 @@ export default function SettingsPageRoute() {
     } catch {
       setSyncStatus('error')
     } finally {
-      setTimeout(() => setSyncStatus('idle'), 4000)
+      setTimeout(() => setSyncStatus('idle'), 8000)
     }
   }
 
@@ -216,7 +216,14 @@ export default function SettingsPageRoute() {
               )}
               <span className="flex-1 text-left">
                 {syncStatus === 'syncing' && 'Synchronisation…'}
-                {syncStatus === 'success' && syncResult && `Sync OK · ${syncResult.pushed} envoyés · ${syncResult.pulled} reçus`}
+                {syncStatus === 'success' && syncResult && (
+                  <>
+                    {`Sync OK · ${syncResult.pushed} envoyés · ${syncResult.pulled} reçus`}
+                    {syncResult.details?.length ? (
+                      <span className="block text-[10px] opacity-70 mt-0.5">{syncResult.details.join(' | ')}</span>
+                    ) : null}
+                  </>
+                )}
                 {syncStatus === 'error' && 'Erreur — réessayez'}
                 {syncStatus === 'idle' && 'Forcer la synchronisation'}
               </span>

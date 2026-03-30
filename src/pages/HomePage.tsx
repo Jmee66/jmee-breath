@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Heart, ArrowRight } from 'lucide-react'
 import { PageContainer } from '@modules/theme'
@@ -8,6 +8,7 @@ import { tableRepository } from '@modules/apnea-tables/services/tableRepository'
 import { TableFavoriteCard } from '@modules/apnea-tables/components/TableFavoriteCard'
 import { getAllCustomWarmups } from '@modules/free-timer/services/customWarmupWriter'
 import { WarmupFavoriteCard } from '@modules/free-timer/components/WarmupFavoriteCard'
+import { eventBus } from '@core/events/eventBus'
 import type { Exercise, ExerciseCategory } from '@core/types'
 import type { ApneaTable } from '@modules/apnea-tables/types'
 import type { CustomWarmup } from '@modules/free-timer/types/index'
@@ -59,10 +60,34 @@ export default function HomePage() {
     }
   }, [exercises.length, setExercises])
 
+  const reloadTables  = useCallback(() => { tableRepository.getAll().then(setTables).catch(() => {}) }, [])
+  const reloadWarmups = useCallback(() => { getAllCustomWarmups().then(setWarmups).catch(() => {}) }, [])
+  const reloadExercises = useCallback(() => { getAllExercises().then(setExercises).catch(() => {}) }, [setExercises])
+
+  // Chargement initial
+  useEffect(() => { reloadTables(); reloadWarmups() }, [reloadTables, reloadWarmups])
+
+  // Rafraîchir après sync (tables, warmups, exercices arrivant d'un autre appareil)
   useEffect(() => {
-    tableRepository.getAll().then(setTables).catch(() => {})
-    getAllCustomWarmups().then(setWarmups).catch(() => {})
-  }, [])
+    return eventBus.on('SYNC_COMPLETED', ({ table, pulled }) => {
+      if (pulled <= 0) return
+      if (table === 'apnea_tables')    reloadTables()
+      if (table === 'custom_warmups')  reloadWarmups()
+      if (table === 'exercises')       reloadExercises()
+    })
+  }, [reloadTables, reloadWarmups, reloadExercises])
+
+  // Rafraîchir aussi au retour au premier plan (visibilitychange)
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        reloadTables()
+        reloadWarmups()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [reloadTables, reloadWarmups])
 
   const isLoading = settingsLoading || exercisesLoading
 
@@ -230,16 +255,18 @@ export default function HomePage() {
         <div className="space-y-3">
           {/* Exercises section */}
           {(() => {
-            const show = (tab === 'all' || tab === 'exercises') && favExercises.length > 0
+            // Tab "warmups" montre les exercices catégorisés "warmup"
+            const list = tab === 'warmups' ? favExercises.filter(e => e.category === 'warmup') : favExercises
+            const show = (tab === 'all' || tab === 'exercises' || tab === 'warmups') && list.length > 0
             return show ? (
               <>
                 {tab === 'all' && <SectionHeader label="Exercices" to="/exercises" />}
-                {favExercises.map((ex, idx) => (
+                {list.map((ex, idx) => (
                   <FavoriteCard
                     key={ex.id}
                     exercise={ex}
                     isFirst={idx === 0}
-                    isLast={idx === favExercises.length - 1}
+                    isLast={idx === list.length - 1}
                     reorderMode={reorderMode && tab === 'exercises'}
                     onMoveUp={() => void moveFavorite(ex.id, 'up')}
                     onMoveDown={() => void moveFavorite(ex.id, 'down')}
@@ -251,16 +278,18 @@ export default function HomePage() {
 
           {/* Tables section */}
           {(() => {
-            const show = (tab === 'all' || tab === 'tables') && favTables.length > 0
+            // Tab "warmups" montre les tables catégorisées "warmup"
+            const list = tab === 'warmups' ? favTables.filter(t => t.category === 'warmup') : favTables
+            const show = (tab === 'all' || tab === 'tables' || tab === 'warmups') && list.length > 0
             return show ? (
               <>
                 {tab === 'all' && <SectionHeader label="Tables Apnee" to="/tables" />}
-                {favTables.map((t, idx) => (
+                {list.map((t, idx) => (
                   <TableFavoriteCard
                     key={t.id}
                     table={t}
                     isFirst={idx === 0}
-                    isLast={idx === favTables.length - 1}
+                    isLast={idx === list.length - 1}
                     reorderMode={reorderMode && tab === 'tables'}
                     onRun={() => navigate('/tables')}
                     onMoveUp={() => void moveTableFavorite(t.id, 'up')}

@@ -8,6 +8,7 @@ function toSupabasePayload(w: CustomWarmup, userId: string): Record<string, unkn
     id:                    w.id,
     user_id:               userId,
     name:                  w.name,
+    category:              w.category ?? null,
     steps:                 w.steps,
     go_duration_s:         w.goDurationS,
     recovery_pattern:      w.recoveryPattern,

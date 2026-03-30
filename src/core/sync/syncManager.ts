@@ -432,15 +432,52 @@ class SyncManager {
     console.log('[sync] pull tables:', remoteTables?.length ?? 0, tErr?.message ?? 'OK')
     if (tErr) details.push(`Tables pull ERR: ${tErr.message}`)
     else if (remoteTables?.length) details.push(`Tables pull: ${remoteTables.length}`)
-    if (remoteTables?.length) {
+    if (remoteTables) {
+      const remoteIds = new Set(remoteTables.map((t: any) => t.id as string))
       for (const t of remoteTables) {
         const local = await db.apneaTables.get(t.id)
         if (!local || new Date(t.updated_at) > new Date(local.updatedAt)) {
           await db.apneaTables.put(mapRemoteApneaTable(t))
         }
       }
+      // Supprimer les tables locales absentes du remote (supprimées sur un autre device)
+      const localTableIds = await db.apneaTables.toCollection().primaryKeys()
+      let deletedTables = 0
+      for (const id of localTableIds) {
+        if (!remoteIds.has(id as string)) {
+          await db.apneaTables.delete(id)
+          deletedTables++
+        }
+      }
+      if (deletedTables) console.log('[sync] deleted orphan tables:', deletedTables)
       pulled += remoteTables.length
-      eventBus.emit('SYNC_COMPLETED', { table: 'apnea_tables', pushed: 0, pulled: remoteTables.length })
+      if (remoteTables.length || deletedTables) {
+        eventBus.emit('SYNC_COMPLETED', { table: 'apnea_tables', pushed: 0, pulled: remoteTables.length + deletedTables })
+      }
+    }
+
+    // ── 12. Supprimer exercices locaux orphelins ────────────────────────────
+    if (remoteEx) {
+      const remoteExIds = new Set(remoteEx.map((e: any) => e.id as string))
+      const localCustomExIds = (await db.exercises.filter(e => !e.isPreset).toArray()).map(e => e.id)
+      for (const id of localCustomExIds) {
+        if (!remoteExIds.has(id)) {
+          await db.exercises.delete(id)
+          console.log('[sync] deleted orphan exercise:', id)
+        }
+      }
+    }
+
+    // ── 13. Supprimer warmups locaux orphelins ──────────────────────────────
+    if (remoteWarmups) {
+      const remoteWarmupIds = new Set(remoteWarmups.map((w: any) => w.id as string))
+      const localWarmupIds = await db.customWarmups.toCollection().primaryKeys()
+      for (const id of localWarmupIds) {
+        if (!remoteWarmupIds.has(id as string)) {
+          await db.customWarmups.delete(id)
+          console.log('[sync] deleted orphan warmup:', id)
+        }
+      }
     }
 
     console.log('[sync] forceSync done — pushed:', pushed, 'pulled:', pulled, 'details:', details)
